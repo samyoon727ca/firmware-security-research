@@ -23,7 +23,7 @@ artifact that turns the threat model from analysis into measured result.*
 > This assessment **cites and reproduces** that public CVE; it does **not** claim the finding
 > as novel. Dedup basis: [`known-territory.md`](../../research/uas-autonomy/known-territory.md).
 
-> **Scope, safety & clearance.** UNCLASSIFIED, open-source stack (ArduPilot/PX4 + public
+> **Scope & safety.** UNCLASSIFIED, open-source stack (ArduPilot/PX4 + public
 > MAVLink). **Simulation-first** — the harness targets SITL on localhost and sends only a
 > benign, non-actuating `REQUEST_MESSAGE`; it never arms, changes mode, or writes
 > parameters. Pointing it at real hardware needs `--allow-nonsim` **and** an owned vehicle

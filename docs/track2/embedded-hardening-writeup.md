@@ -7,7 +7,7 @@ chain from the [RoT explainer](secure-boot-root-of-trust.md), with every measure
 mapped to **NIST SP 800-53 Rev.5** controls and **CMMC / NIST SP 800-171**
 practices.*
 
-> **Scope & clearance-safety.** UNCLASSIFIED. The target is a commercial ARM
+> **Scope & classification.** UNCLASSIFIED. The target is a commercial ARM
 > single-board computer (companion computer class) running an **open** build
 > (Buildroot/Yocto + U-Boot + mainline Linux) so every step is reproducible and
 > publishable. No proprietary, classified, or export-controlled data. Generic to

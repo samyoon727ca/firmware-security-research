@@ -24,19 +24,16 @@ This repo is organized around three tracks:
 | **2 — Security engineering docs** | Open embedded platforms | Threat models, hardening writeups, architecture + anti-tamper docs in USG methodology language |
 | **3 — Reusable tooling** | Repeatable workflows | Claude Code Skills, Ghidra scripts, emulation configs, chart/diagram generators |
 
-The full deliverable plan, with each artifact mapped to a named Systems Security
-Engineer competency, is in [`docs/artifact-plan.md`](docs/artifact-plan.md) and
-[`docs/qualification-map.md`](docs/qualification-map.md).
+Deliverable status, the run-by-run ledger, and the competency each artifact evidences
+are in [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Repository map
 
 ```
 docs/
-  artifact-plan.md            Concrete plan across all three tracks (built/planned status)
-  qualification-map.md        Every artifact -> a specific SSE competency + coverage snapshot
+  roadmap.md                  Deliverable status, Track 1 run ledger, competency coverage, what is next
   portfolio-blueprint.svg     One-image end-state blueprint (the banner above)
-  NEXT-SESSION.md             Two restart paths (Track 1 live run · P5.1 capstone)
-  audit-2026-09-18.md         Consistency/hygiene audit + consolidated next-steps roadmap
+  NEXT-SESSION.md             Working restart notes (current thread + how to reproduce each run)
   disclosure-policy.md        Coordinated disclosure + legal/ethics scope
   track1-target-selection.md  Target choice: rubric + freshness pass + CVE-volume reorder
   track1-acquisition-runbook.md  Turnkey P1.1: acquire -> confirm SoC -> triage -> diff -> dedup
@@ -60,7 +57,9 @@ docs/
 tools/
   mavlink-sectest/             MAVLink security test harness for ArduPilot/PX4 SITL (P5.1 T&E)
   mavlink-signing/             P6.2 build spec: Rust MAVLink v2 signing module (closes T1/T5)
-  run-checks.sh                Repo verification: lints, self-tests, SVG/mermaid/link checks
+  run-checks.sh                Repo verification gate (also run in CI): lints, self-tests, link checks
+  embargo-guard.sh             Git hooks that keep pre-disclosure material out of this public repo
+  install-hooks.sh             Installs the guard's hooks (once per clone)
 research/
   dlink-rtl819x/               Run 1 working area: acquisition log + hashes, the extract->diff
                                runner, and Ghidra headless diff scripts (n-day case study)
@@ -70,9 +69,14 @@ research/
                                ledger, reusable Ghidra scripts, and the code-level finding
                                deduped as an n-day (CVE-2024-45890)
                                (paperwork + tooling tracked; firmware blobs git-ignored)
+  uas-autonomy/                Run 4 working area: known-territory dedup map, Micro-XRCE-DDS
+                               Agent scope + hypotheses, fuzz harnesses (ucdr_fuzz, agent_fuzz,
+                               xrce_probe) and a results write-up per campaign
 writeups/
   dir-816l-hnap-soapaction-cmdinjection.md  Track 1 case study: patch-diffing rediscovers an
                                n-day unauth HNAP command injection (CVE-2015-2051 class)
+  draytek-vigor300b-download_ovpn-cmdinjection.md  Track 1 case study: a silent fix leads to a
+                               root command injection, deduped as CVE-2024-45890
 ```
 
 ## Reusable tooling (Claude Code Skills)
@@ -112,19 +116,24 @@ A standalone tool supports the UAS capstone:
 
 ## Status
 
-The tooling funnel and the engineering-document set are **built and verified on
-fixtures**; what remains is hands-on execution that needs an unrestricted host.
+The tooling funnel, the engineering-document set and the UAS capstone are **built**, and
+four live Track 1 runs are recorded. Per-deliverable status is in
+[`docs/roadmap.md`](docs/roadmap.md); the summary below is the narrative.
 
 **Built**
 - **Track 3 — five reusable Skills** (firmware-triage, binary-diff,
   finding-to-vendor-report, finding-to-cve-writeup, security-dataviz) plus the
   **mavlink-sectest** harness — the full acquire → triage → diff → report → CVE →
   visualize funnel, each verified end-to-end on synthetic fixtures.
-- **Track 2 — four engineering documents**: the secure-boot / root-of-trust
+- **Track 2 — the engineering documents**: the secure-boot / root-of-trust
   explainer, the NIST SP 800-160 UAS threat model, the 800-53 / CMMC hardening
-  writeup, and the milestone security architecture + anti-tamper approach — giving
-  SSE competencies 1–7 real artifact coverage (see the blueprint above).
-- **Track 1 — three live runs, method proven end-to-end (all findings so far dedup as n-days):**
+  writeup, the milestone security architecture + anti-tamper approach, the FPGA security
+  reference and a leadership brief — giving SSE competencies 1–7 real artifact coverage.
+- **UAS capstone (P5.1)** — `mavlink-sectest` run against ArduPilot and PX4 SITL (stock link
+  4 FAIL / 1 PASS on both), a signing before/after, and a Rust MAVLink v2 signing module
+  (P6.2) as the build-side control:
+  [`docs/track2/uas-capstone-assessment.md`](docs/track2/uas-capstone-assessment.md).
+- **Track 1 — three router runs, method proven end-to-end (each finding deduped as an n-day):**
   - **Run 1 — DIR-816L Rev B (D-Link, RTL819x MIPS-BE):** funnel exercised end-to-end
     on real vendor firmware — acquire → confirm SoC → diff the security patch → confirm
     in Ghidra → dedup. Rediscovered an unauthenticated HNAP `SOAPAction` OS command
@@ -158,9 +167,13 @@ fixtures**; what remains is hands-on execution that needs an unrestricted host.
   the 2960/300B/3900 share the 1.5.1.7 fix but declines the CVE edit as non-CNA, so vendor-side
   disclosure is closed and any CPE correction now routes to the CNA (MITRE). A runtime PoC on an
   owned/emulated ≤ 1.5.1.6 device would further substantiate the case study. See the top-priority
-  item in [`docs/artifact-plan.md`](docs/artifact-plan.md). Disclosure obligation was handled per
-  ([`docs/disclosure-policy.md`](docs/disclosure-policy.md) §5) — COI / outside-activity reporting first.
-- **P5.1** — the hands-on UAS capstone assessment (threat model + test harness ready).
+  "Next" list in [`docs/roadmap.md`](docs/roadmap.md). The personal reporting step in
+  [`docs/disclosure-policy.md`](docs/disclosure-policy.md) §5 was handled first.
+- **Run 4 — UAS / autonomy (in progress):** the Micro-XRCE-DDS Agent assessment. The dedup map
+  and PX4 re-anchor are done; three coverage-guided fuzzing campaigns against the deserializer
+  surface each ended in a documented clean negative, and the session-layer hypotheses are next.
+  Plan: [`docs/track1-uas-run-plan.md`](docs/track1-uas-run-plan.md); results:
+  [`research/uas-autonomy/`](research/uas-autonomy/known-territory.md).
 
 ## License
 

@@ -15,10 +15,10 @@ Each candidate is scored 1-5 on five weighted criteria:
 | Criterion | Why it matters | Weight |
 |-----------|----------------|:------:|
 | **Firmware version depth** | Binary diffing across versions is the core funnel; need many public releases | ×3 |
-| **Payout path** | Track 1 is the income track; a paid bounty beats credit-only | ×3 |
+| **Payout path** | A paid bounty program signals a live vendor process and beats credit-only | ×3 |
 | **Realtek fit + MIPS/ARM match** | Must actually be Realtek SoC; matches the reversing specialization | ×2 |
 | **Attack surface freshness** | Less picked-over targets yield novel findings | ×2 |
-| **Clearance-safety narrative** | US vendor > allied for the "not-a-foreign-adversary-product" story | ×1 |
+| **Vendor-origin narrative** | US vendor > allied for the "not-a-foreign-adversary-product" story | ×1 |
 
 | Candidate | Ver. depth ×3 | Payout ×3 | Realtek fit ×2 | Freshness ×2 | Narrative ×1 | **Total** |
 |-----------|:---:|:---:|:---:|:---:|:---:|:---:|
@@ -62,9 +62,9 @@ Freshness sub-signals, scored **Realtek-scoped**, not vendor-wide:
    Broadcom; confirm from the image per the SoC rule below). Only candidate with
    fresh surface + live vendor process + novelty headroom.
 2. **Diff/learning + portfolio target: D-Link DIR (RTL819x)** — reframed from
-   "volume income farm" to a **patch-diff / n-day-reproduction** target. EOL means
+   "high-volume target" to a **patch-diff / n-day-reproduction** target. EOL means
    no payout and duplicate risk, but it is superb diff fuel and a clean public
-   writeup is still strong hiring signal. This is where the binary-diff Skill
+   writeup still has strong portfolio value. This is where the binary-diff Skill
    earns its keep first (vendor-agnostic, so it is built regardless).
 3. **Demoted: Netgear-Realtek** — the payout narrative does not survive the
    freshness cut for EOL Realtek models.
@@ -74,12 +74,12 @@ Freshness sub-signals, scored **Realtek-scoped**, not vendor-wide:
 mostly in **older/EOL** gear (great diff fuel + learning, poor payout), while the
 freshest actively-patched SOHO lines tend to run other silicon. Two resolutions,
 your decision — I did **not** relax the stated constraint on my own:
-- **(A) Hold Realtek strict** → the realistic first *income* shot is Zyxel-if-Realtek;
-  D-Link-Realtek is a portfolio/patch-diff play, not a payout. Track 1 income
+- **(A) Hold Realtek strict** → the realistic first *paid-bounty* shot is Zyxel-if-Realtek;
+  D-Link-Realtek is a portfolio/patch-diff play, not a payout. The bounty
   expectation drops accordingly — stated honestly.
 - **(B) Relax to "Realtek OR the vendor's actively-patched SOHO line"** → chase
   Zyxel/Netgear fresh models for payout, keep Realtek RTL819x as the reversing
-  capstone. Better income odds, bends the constraint.
+  capstone. Better bounty odds, bends the constraint.
 
 ## Model selection — confirm the SoC from the firmware, not the spec sheet
 
@@ -107,7 +107,7 @@ portfolio strength**, not payout path. That reorders the ranking:
 - **Payout drops out.** Confirmed: **Zyxel runs no bug bounty - credit only**
   (PSIRT `security@zyxel.com.tw`, CNA since 2021). D-Link is likewise credit /
   Hall-of-Thanks, no cash on consumer gear. Under the reordered objective this is
-  fine: the first target is explicitly **not** an income play - credit + writeups.
+  fine: the first target is explicitly **not** a bounty play - credit + writeups.
 - **Saturation becomes the enemy** (a picked-clean model yields duplicates, not
   CVEs); **CVE-assignment cadence + novel surface become the prize.**
 

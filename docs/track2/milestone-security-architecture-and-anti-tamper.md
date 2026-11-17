@@ -8,7 +8,7 @@ Synthesizes the [secure-boot/RoT explainer](secure-boot-root-of-trust.md), the
 [threat model](uas-autopilot-threat-model.md), and the
 [hardening writeup](embedded-hardening-writeup.md) into one architecture.*
 
-> **Scope & clearance-safety.** UNCLASSIFIED. Built on the **open** ArduPilot/PX4 +
+> **Scope & classification.** UNCLASSIFIED. Built on the **open** ArduPilot/PX4 +
 > MAVLink example and on **public policy references** only. Anti-tamper is treated
 > as a *process and architecture* discipline: specific Critical Program Information
 > (CPI), protection implementations, and AT levels are program-specific and would
@@ -112,7 +112,7 @@ flowchart LR
   hold to the planned assurance.
 - **Sustain:** key management, field updates, and authenticated RMA re-securing.
 
-> **Deliberate omission (clearance-safety).** Actual CPI, the specific protection
+> **Deliberate omission (scope).** Actual CPI, the specific protection
 > implementations, and the AT assurance levels are program-specific and would be
 > classified. This document establishes the *process and architecture* only; it
 > names no protected technology.

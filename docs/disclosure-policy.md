@@ -2,7 +2,7 @@
 
 This document governs all vulnerability research in this portfolio. It exists for
 two reasons: it is the ethical baseline for responsible security work, and it is
-the guardrail that keeps this work publishable and clearance-safe.
+the guardrail that keeps this work publishable and inside its stated scope.
 
 ## 1. Target scope (what is in bounds)
 
@@ -67,5 +67,5 @@ the guardrail that keeps this work publishable and clearance-safe.
 Sustained security research and any associated income can trigger personal
 disclosure or conflict-of-interest reporting obligations. Before publishing under
 my name or accepting a bounty payout, I check whether the activity or income
-level requires disclosure to my employer or a clearance authority, and I handle
+level requires disclosure to my employer or any other body I report to, and I handle
 that first. This is tracked out-of-band, not in this repository.
