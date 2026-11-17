@@ -126,7 +126,7 @@ novelty bet. Matches the Run 4 licensing rationale (PX4 BSD-3 is the primary/bui
    session/privilege handling, client↔agent trust boundary. Thinnest coverage; newest code.
 2. **PX4 ↔ uXRCE-DDS integration seam.** The Agent-in-isolation has 2 CVEs; the *PX4
    configuration* of the bridge (topics exposed, privilege inheritance ROS 2 → flight
-   stack) is essentially untested publicly and is the most Lattice-flavored surface.
+   stack) is essentially untested publicly and is the most mesh-autonomy-flavored surface.
 3. **DDS-Security implementation policy/handshake edge cases (§2.3).** Specific-impl
    governance/permissions parsing or a cross-impl policy mismatch — not generic SROS2.
 4. *(De-prioritized)* Fast-DDS core RTPS/CDR memory-safety DoS — mined (§2.2); pursue only

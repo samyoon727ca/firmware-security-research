@@ -15,8 +15,8 @@ the "systems language (Rust/C)" preferred qual. Feeds back into
 requirements for **T1** (command authenticity) and **T5** (anti-replay).
 
 **Why Rust.** Signing sits on a parser/crypto boundary handling untrusted bytes off the
-wire — the exact place memory-safety matters. Rust also maps to the JD's preferred
-languages. (C is an acceptable alternative; the spec is language-neutral below.)
+wire — the exact place memory-safety matters. Rust is also one of the systems
+languages embedded security is written in. (C is an acceptable alternative; the spec is language-neutral below.)
 
 ## Protocol (what "correct" means)
 MAVLink v2 signing (per the MAVLink spec):

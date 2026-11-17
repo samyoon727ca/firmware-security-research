@@ -4,7 +4,7 @@
 embedded platform, how it decomposes into verifiable requirements, and how it maps
 to USG assurance vocabulary. Written for a technical and government audience.*
 
-> **Scope & clearance-safety.** UNCLASSIFIED. Built entirely on **open, published**
+> **Scope & classification.** UNCLASSIFIED. Built entirely on **open, published**
 > mechanisms — U-Boot verified boot, ARM Trusted Firmware-A (TF-A), the TCG TPM,
 > and OpenTitan — and on public NIST guidance. It contains no vendor-proprietary,
 > classified, or export-controlled (ITAR/EAR) technical data. Anti-tamper is

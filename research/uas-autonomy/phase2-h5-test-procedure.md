@@ -1,7 +1,7 @@
 # Phase 2 · H5 — PX4 uXRCE-DDS bridge: unauthenticated command-injection test procedure
 
 *The executable test procedure for **H5** of the
-[Phase 2 scope](phase2-micro-xrce-dds-scope.md) — the highest-impact, most Lattice-flavored
+[Phase 2 scope](phase2-micro-xrce-dds-scope.md) — the highest-impact, most mesh-autonomy-flavored
 hypothesis: **does PX4's default uXRCE-DDS bridge let an unauthorized DDS/XRCE peer read and
 command the flight stack, with no authentication?** It is the DDS-layer analog of the MAVLink
 T1 / [CVE-2026-1579](known-territory.md) story — missing authentication for a critical function,

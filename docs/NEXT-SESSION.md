@@ -14,8 +14,7 @@ git checkout main                                   # tooling branches are merge
 tools/run-checks.sh                                 # the bar is 0 failed (same gate runs in CI)
 tools/install-hooks.sh                              # once per clone: embargo-guard git hooks
 ```
-Read [`docs/artifact-plan.md`](artifact-plan.md) for the plan and
-[`docs/qualification-map.md`](qualification-map.md) for competency coverage.
+Read [`docs/roadmap.md`](roadmap.md) for deliverable status, the run ledger and competency coverage.
 
 ## Next round — depth (recommended)
 Breadth is done; the marginal hour now buys **depth**, not more artifacts. Two thrusts —
@@ -84,7 +83,7 @@ full sequence: [`track1-uas-run-plan.md`](track1-uas-run-plan.md). Reproduce H1 
 
 Guardrails unchanged: WSL for the gate (keep it green), a new branch — never `main`, coordinated
 disclosure / no committed blobs, and
-keep the docs (README map, qualification-map, artifact-plan, this file) consistent on any status change.
+keep the docs (README map, roadmap, this file) consistent on any status change.
 (The DrayTek CVE-2024-45890 coverage-gap email was **sent 2026-09-21**; the vendor confirmed 2960/300B/3900
 share the 1.5.1.7 fix but declines the CVE edit as non-CNA — vendor-side disclosure is closed. See the
 [acquisition-log disclosure log](../research/draytek-vigor/acquisition-log.md#disclosure-log).)
@@ -96,9 +95,8 @@ workstation (or an environment provisioned with a permissive network policy).
 
 ---
 
-## Path A — Track 1 live firmware run (the income path)
-Goal: acquire → confirm SoC → diff → confirm → disclose a **real CVE**. Only this
-path pays. Full procedure: [`docs/track1-acquisition-runbook.md`](track1-acquisition-runbook.md).
+## Path A — Track 1 live firmware run
+Goal: acquire → confirm SoC → diff → confirm → disclose a **real CVE**. Full procedure: [`docs/track1-acquisition-runbook.md`](track1-acquisition-runbook.md).
 
 > **Status (3 runs in):**
 > - **Run 1 — D-Link DIR-816L Rev B:** funnel confirmed an unauth HNAP `SOAPAction`
@@ -126,9 +124,9 @@ path pays. Full procedure: [`docs/track1-acquisition-runbook.md`](track1-acquisi
 
 1. **Tools:** `.claude/skills/firmware-triage/scripts/setup-tools.sh`
    (binwalk, squashfs-tools, jefferson, ubi_reader, QEMU).
-2. **Acquire** 2–3 firmware versions of the locked target — D-Link RTL819x,
-   **DIR-816L** primary (see [`docs/track1-target-selection.md`](track1-target-selection.md));
-   record SHA-256 in [`research/dlink-rtl819x/acquisition-log.md`](../research/dlink-rtl819x/acquisition-log.md).
+2. **Acquire** 2–3 firmware versions of the chosen target (selection rubric and the
+   acquisition-feasibility gate: [`docs/track1-target-selection.md`](track1-target-selection.md));
+   record SHA-256 in that run's `research/<run>/acquisition-log.md`.
 3. **Confirm the SoC from the image** (binwalk + bootloader strings) — do not
    trust spec sheets.
 4. **Triage** each version → **diff** across versions:
@@ -145,12 +143,12 @@ path pays. Full procedure: [`docs/track1-acquisition-runbook.md`](track1-acquisi
 6. **Report + disclose:** `finding.json` → `finding-to-vendor-report` (CVSS +
    PSIRT report) → coordinated disclosure → `finding-to-cve-writeup` (public
    writeup + CVE JSON). Chart findings with `security-dataviz`.
-> Disclosure obligation: before publishing under your name or accepting any
-> payout, handle personal disclosure/COI reporting first (disclosure-policy §5).
+> Disclosure obligation: before publishing or accepting any bounty, handle the personal
+> reporting step first (disclosure-policy §5).
 
 ---
 
-## Path B — P5.1 UAS capstone (portfolio, no income) — COMPLETE
+## Path B — P5.1 UAS capstone — COMPLETE
 Goal: the hands-on autopilot assessment. Analytical foundation is already written:
 [`docs/track2/uas-autopilot-threat-model.md`](track2/uas-autopilot-threat-model.md).
 
@@ -186,8 +184,8 @@ Goal: the hands-on autopilot assessment. Analytical foundation is already writte
 ## Pointers
 - Front door / repo map: [`README.md`](../README.md)
 - Next live run (UAS/autonomy): [`track1-uas-run-plan.md`](track1-uas-run-plan.md)
-- **Active Phase 2 next action** — H1 `ucdr` fuzz spec: [`../research/uas-autonomy/phase2-h1-fuzz-harness-spec.md`](../research/uas-autonomy/phase2-h1-fuzz-harness-spec.md) · harness [`../research/uas-autonomy/ucdr_fuzz/`](../research/uas-autonomy/ucdr_fuzz/)
-- Latest audit + consolidated roadmap: [`audit-2026-09-18.md`](audit-2026-09-18.md)
+- Phase 2 scope and hypothesis ranking: [`../research/uas-autonomy/phase2-micro-xrce-dds-scope.md`](../research/uas-autonomy/phase2-micro-xrce-dds-scope.md) · harnesses [`ucdr_fuzz/`](../research/uas-autonomy/ucdr_fuzz/), [`agent_fuzz/`](../research/uas-autonomy/agent_fuzz/)
+- Deliverable status and what is next: [`roadmap.md`](roadmap.md)
 - Scope & ethics: [`docs/disclosure-policy.md`](disclosure-policy.md)
 - Engineering docs: [`docs/track2/`](track2/)
 - Reusable skills: `.claude/skills/`  ·  Tools: `tools/`

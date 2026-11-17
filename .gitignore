@@ -1,7 +1,7 @@
 # ==========================================================================
 # Firmware blobs & extracted images — NEVER commit these.
 # Reasons: vendor copyright, potential DMCA/redistribution issues, repo bloat,
-# and clearance-safety hygiene (keep only YOUR analysis, not vendor binaries).
+# and scope hygiene (keep only YOUR analysis, not vendor binaries).
 # Acquire firmware yourself from the vendor's public support site each time.
 # ==========================================================================
 *.bin

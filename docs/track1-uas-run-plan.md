@@ -3,12 +3,12 @@
 *PX4-anchored break/build, a dedup-clean re-anchor of the existing MAVLink capstone,
 and a ROS 2 / DDS novel-CVE hunt on the autonomy-middleware layer.*
 
-> **Status: PLAN (drafted 2026-09-19).** This is the sequenced plan for the next live
-> Track 1 run, deliberately pivoting the domain from SOHO routers to UAS / autonomy to
-> match the target market. Nothing here is executed yet; each phase names its own
-> definition-of-done. Companion to [`track1-target-selection.md`](track1-target-selection.md)
-> (which carried the router-era target rubric) and the role-alignment section of
-> [`artifact-plan.md`](artifact-plan.md).
+> **Status: IN EXECUTION (plan drafted 2026-09-19).** This is the sequenced plan for the
+> fourth live Track 1 run, deliberately pivoting the domain from SOHO routers to UAS /
+> autonomy. Phases 0 and 1 are done and Phase 2 is in progress; each phase carries its own
+> status box and definition-of-done. Companion to
+> [`track1-target-selection.md`](track1-target-selection.md) (which carried the router-era
+> target rubric) and the [roadmap](roadmap.md).
 
 > **Scope & ethics (unchanged).** UNCLASSIFIED, open-source targets only — PX4,
 > ArduPilot, ROS 2, and the DDS implementations are all public. Simulation-first
@@ -28,13 +28,10 @@ deduped as n-days, and the DrayTek surface is now fully CVE'd, so the router pat
 new-CVE upside has narrowed to a low-yield model fan-out.
 
 This run answers "where does the next new-CVE attempt point?" with the domain that is
-*simultaneously* the on-target market and a genuinely under-reviewed attack surface:
-**UAS / autonomy**. The target employers are defense primes and defense startups
-(Anduril class). The differentiator that a clearance line cannot show is **hands-on
-depth in their actual problem domain** — embedded flight stacks and the autonomy
-middleware that ties vehicles into a mesh — demonstrated as *break and build*, which is
-the literal shape of a product-facing Systems Security Engineer role
-([`artifact-plan.md`](artifact-plan.md) role-alignment section).
+*simultaneously* defense-relevant and a genuinely under-reviewed attack surface:
+**UAS / autonomy**. The value is **hands-on depth in that problem domain** — embedded
+flight stacks and the autonomy middleware that ties vehicles into a mesh — demonstrated
+as *break and build*, which is the shape of product-facing systems security engineering.
 
 The existing UAS work ([capstone](track2/uas-capstone-assessment.md),
 [threat model](track2/uas-autopilot-threat-model.md),
@@ -43,11 +40,6 @@ The existing UAS work ([capstone](track2/uas-capstone-assessment.md),
 but it is ArduPilot-leaning and predates a key 2026 disclosure. This plan re-anchors it
 to the defense-representative stack, makes it dedup-clean, and then extends it into the
 surface where a novel CVE actually plausibly lives.
-
-**The clock.** ~18 months to MS completion and SkillBridge. Target: land Phase 1
-(fast, dedup-proof) and have **Phase 2 in flight before SkillBridge applications** — an
-in-progress novel-CVE effort in the autonomy domain is the working-interview leverage
-that converts a SkillBridge slot into an offer.
 
 ---
 
@@ -70,11 +62,11 @@ that converts a SkillBridge slot into an offer.
   single-stack, and it converts the existing ArduPilot work into a breadth signal.
   Note: ArduPilot RE-for-security is being actively published (see §10), so it is the
   *cross-validation* target, not the novelty bet.
-- **Lattice reality check.** Anduril's Lattice is a proprietary, decentralized mesh
-  C2 / autonomy platform — it cannot be targeted. Architecturally it is pub/sub
+- **Proprietary-platform reality check.** Fielded decentralized mesh C2 / autonomy
+  platforms are proprietary and cannot be targeted. Architecturally they are pub/sub
   autonomy middleware, which is exactly what **ROS 2 / DDS** is. So the DDS work in
-  Phase 2 is not a fallback proxy; it is the closest open analog to Anduril's actual
-  problem, and therefore the strongest domain-fluency signal available.
+  Phase 2 is not a fallback proxy; it is the closest open analog to that class of
+  system, and therefore the strongest domain-fluency signal available.
 
 **Group 3+ framing.** Keep the plan's existing re-scope: interpret findings against the
 class the market fields — BLOS/SATCOM C2, encrypted datalinks, GPS-denied / spoofing
@@ -178,7 +170,7 @@ embedded/IoT assessment (3), security architecture (1/4), Cyber T&E (7).
 > highest impact). Next: acquire+build source (ASan/UBSan), stand up the fuzz + SITL rigs — **H1 fuzz-harness spec drafted** ([`../research/uas-autonomy/phase2-h1-fuzz-harness-spec.md`](../research/uas-autonomy/phase2-h1-fuzz-harness-spec.md), skeleton self-tests); H5 first run recorded (blocked at publisher `0x80`, pivot to H1).
 
 The genuinely new work, and the only surface here where a novel CVE is realistically on
-the table. It is also the most Lattice-flavored layer (autonomy middleware / mesh).
+the table. It is also the layer closest to mesh autonomy middleware.
 
 **Attack surface (candidate-generating, all through the Phase 0 gate first):**
 - **SROS2 / DDS-Security**: discovery and authentication handshakes, permissions/governance
@@ -207,7 +199,7 @@ assessment (3), security architecture (1/4), Cyber T&E (7), Sw assurance (2).
 ## 6. Phase 3 — Hardware differentiator (cost-gated): flight-controller secure boot
 
 Converts [`secure-boot-root-of-trust.md`](track2/secure-boot-root-of-trust.md) from
-reference to demonstrated, and hits Anduril's build-hardware DNA specifically.
+reference to demonstrated on real hardware.
 
 - **Target:** a Pixhawk-class flight controller (owned/bench).
 - **Break:** UART/JTAG/SWD access, SPI-flash dump, bootloader analysis, secure-boot /
@@ -220,7 +212,7 @@ reference to demonstrated, and hits Anduril's build-hardware DNA specifically.
 
 ---
 
-## 7. Sequencing & timeline (job-market clock)
+## 7. Sequencing
 
 ```mermaid
 flowchart LR
@@ -233,13 +225,11 @@ flowchart LR
 - **Phase 1** — weeks. First shippable, dedup-proof artifact. Do not gate anything on it
   beyond the re-anchor.
 - **Phase 2** — the runway-consuming flagship; the real CVE ceiling lives here.
-- **Phase 3** — optional, pre-SkillBridge, once budget/board allow.
+- **Phase 3** — optional, once budget/board allow.
 
-Parallelize per the plan's cognitive-mode split
-([`artifact-plan.md`](artifact-plan.md)): the **deep serial** flow is the Phase 2 DDS
+Parallelize by cognitive mode: the **deep serial** flow is the Phase 2 DDS
 reversing; the **parallel additive** work is the Phase 1 re-anchor edits, hardware
-procurement, and brief updates. **Milestone:** Phase 1 done + Phase 2 in flight before
-SkillBridge applications open.
+procurement, and brief updates.
 
 ---
 
@@ -256,7 +246,7 @@ SkillBridge applications open.
 
 ---
 
-## 9. Deliverables index (mirrors `artifact-plan.md` Phase 7)
+## 9. Deliverables index (mirrors [`roadmap.md`](roadmap.md))
 
 | ID | Deliverable | Phase | Track |
 |----|-------------|-------|-------|
@@ -276,4 +266,3 @@ Working area (paperwork committed, blobs git-ignored): `research/uas-autonomy/`.
 - RE & control-aware security analysis of ArduPilot (arXiv 2512.01164): <https://arxiv.org/pdf/2512.01164>
 - ROS 2 / DDS middleware insecurity (Alias Robotics): <https://news.aliasrobotics.com/cybersecurity-in-the-ros-2-communication-middleware-targeting-the-top-6-dds-implementations/>
 - "On the (In)Security of Secure ROS 2" (ACM CCS 2022): <https://dl.acm.org/doi/abs/10.1145/3548606.3560681>
-- Anduril Lattice (Command & Control): <https://www.anduril.com/lattice/command-and-control>

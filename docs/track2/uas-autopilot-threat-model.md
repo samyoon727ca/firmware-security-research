@@ -5,7 +5,7 @@ platform. It characterizes the system, enumerates threats, assesses risk, and
 **derives verifiable security requirements from those threats** — the core
 requirements-from-threat-intel task — in NIST SP 800-160 language.*
 
-> **Scope & clearance-safety.** UNCLASSIFIED. The subject is the **open-source**
+> **Scope & classification.** UNCLASSIFIED. The subject is the **open-source**
 > ArduPilot / PX4 autopilot stack and the public MAVLink protocol — chosen so the
 > analysis is fully publishable. It models a generic hobby/commercial airframe.
 > It contains no proprietary, classified, or export-controlled (ITAR/EAR)

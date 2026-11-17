@@ -4,7 +4,7 @@
 authentication and encryption, key provisioning (eFUSE / BBRAM / PUF), side-channel and
 anti-tamper exposure, and how the hardware root of trust extends into the programmable
 fabric. It is the FPGA counterpart to the [secure-boot / root-of-trust
-explainer](secure-boot-root-of-trust.md), and it closes the one **named** JD requirement
+explainer](secure-boot-root-of-trust.md), and it closes the one **named** competency
 with no prior coverage (embedded HW **/ FPGA** secure boot, key management).*
 
 > **Scope.** UNCLASSIFIED, vendor-neutral. Techniques are drawn from **publicly documented**
@@ -126,6 +126,6 @@ It is irreversible — plan it deliberately.
 
 ### Competencies this artifact demonstrates
 - **Security-relevant embedded HW / FPGA features** — secure boot, key management, anti-tamper
-  (the named JD requirement, previously uncovered).
+  (previously uncovered).
 - **Requirements-from-threat + Cyber T&E** — §6 derives verifiable SHALLs with test methods.
 - **Anti-tamper** — CPI-driven zeroization, DPA/fault resistance, tied to the DoD AT process.

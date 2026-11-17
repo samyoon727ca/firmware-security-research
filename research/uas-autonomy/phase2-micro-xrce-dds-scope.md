@@ -22,7 +22,7 @@ and the specific hypotheses worth deep RE time.*
 The **Micro-XRCE-DDS Agent** is the broker that bridges resource-constrained XRCE **Clients**
 (e.g. the PX4 flight controller's `uxrce_dds_client`) into the full **DDS / ROS 2** dataspace.
 It is:
-- **The Lattice-flavored layer** — pub/sub autonomy middleware bridging vehicles into a mesh,
+- **The mesh-autonomy-flavored layer** — pub/sub autonomy middleware bridging vehicles into a mesh,
   the closest *open* analog to a proprietary decentralized C2 fabric (Run 4 §2).
 - **Under-reviewed** — only **CVE-2025-63547** (CREATE_CLIENT MTU length = 0 ⇒ zero-size alloc
   ⇒ crash) and **CVE-2025-63548** (invalid Boolean ⇒ unhandled exception ⇒ resource
@@ -108,7 +108,7 @@ Ranked by *expected value* = novelty headroom × impact. Each names a test.
   higher-severity result. **Test:** two clients + a third forging session/clientKey fields;
   check entity isolation.
 - **H5 — PX4 integration seam: unauthenticated command injection via the bridge** *(highest
-  impact; most Lattice-flavored).* If PX4's **default** uXRCE-DDS config (no DDS-Security)
+  impact; most mesh-autonomy-flavored).* If PX4's **default** uXRCE-DDS config (no DDS-Security)
   exposes **writable command topics** (offboard setpoints, `VehicleCommand`) to any XRCE/DDS
   peer that reaches the Agent, that is missing-authentication on a flight-critical function —
   the DDS-side analog of the MAVLink T1/CVE-2026-1579 story, potentially **novel for the PX4
