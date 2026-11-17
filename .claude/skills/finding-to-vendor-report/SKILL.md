@@ -67,7 +67,37 @@ is sent.
    Find the security contact and send per `reference/disclosure-outreach.md`
    (security.txt -> PSIRT -> bounty platform). Keep detail embargoed.
 
-6. **Hand off.** After a fix ships, the sanitized report feeds the
+   **If the project takes reports through GitHub private vulnerability reporting**
+   (repository -> Security -> "Report a vulnerability"), render the form input instead:
+   ```
+   scripts/make_report.py finding.json --advisory --out advisory.md
+   ```
+   The output has one paste-ready box per form field: Title, Summary, Details,
+   Proof of concept, Impact, Affected products (ecosystem / package / version
+   range / patched), the CVSS vector string, the CWEs and the AI-assistance box.
+   Fill the finding's `advisory` block for the form-specific values (`title`,
+   `details`, `impact`, `setup`, `fix`, `patch_file`, `ecosystem`, `package`,
+   `affected_range`, `patched`, `cwes`, `ai_assistance`); anything left out falls
+   back to the report fields. The person submitting reproduces the issue and reads
+   every field first — never submit it for them.
+
+6. **Ship the memo once the submission is validated.** When the vendor / CNA
+   confirms the report (or assigns an advisory or CVE id), record it in the finding
+   and render the one-page memo for the affected party:
+   ```
+   # finding.json -> "disclosure": { "validated": "YYYY-MM-DD", "advisory_id": "...", "cve_id": "..." }
+   scripts/make_report.py finding.json --memo --out memo.md
+   scripts/make_report.py finding.json --memo --to "<downstream project> maintainers" --out memo-downstream.md
+   ```
+   The memo carries the summary, the steps to reproduce and the **proof of
+   concept**, embedded from the file named in the finding's `poc.file` (with
+   `poc.run`, `poc.expected` and optional memo-specific `poc.steps`). `--memo`
+   **refuses to render while `disclosure.validated` is empty**; `--draft` renders a
+   preview stamped "do not send". A memo holds a working proof of concept, so it
+   stays under `drafts/private/` and goes only to the affected party — downstream
+   projects only with the vendor's agreement while the embargo runs.
+
+7. **Hand off.** After a fix ships, the sanitized report feeds the
    finding-to-CVE-writeup skill for the public writeup.
 
 ## What "good" looks like
@@ -83,6 +113,8 @@ is sent.
 - `templates/finding.json` — finding intake schema (worked example).
 - `templates/vendor-report.md` — the report template.
 - `templates/disclosure-email.md` — coordinated-disclosure cover email.
+- `templates/github-advisory.md` — field-by-field input for GitHub's "Report a vulnerability" form.
+- `templates/disclosure-memo.md` — one-page post-validation memo (summary, repro steps, PoC).
 - `reference/cvss-guide.md` — router-specific CVSS scoring + archetype vectors.
 - `reference/severity-and-impact.md` — severity rationale, CWE choice, impact narrative.
 - `reference/disclosure-outreach.md` — finding the contact + disclosure process.

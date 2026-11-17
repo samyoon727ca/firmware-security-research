@@ -68,6 +68,11 @@ Two fuzz targets, cheapest-first:
 negatives on the reached surface. Target B's result also carries the precise coverage gap (the
 `REPRESENTATION_IN_BINARY` QoS sub-decoders) that scopes the next refinement.
 
+**That refinement is done (2026-11-11):** the binary-representation decoders turned out to run in
+a second Fast-CDR pass inside `<Entity>::create()`, so `agent_fuzz` now mirrors that pass and
+generates its own valid seeds — another clean negative
+([`phase2-h3-binary-rep-fuzz-results.md`](phase2-h3-binary-rep-fuzz-results.md)).
+
 **Source under test (pin commits, record hashes here on the run):**
 
 | Repo | Commit | Tag | vs. known CVEs |

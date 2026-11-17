@@ -47,6 +47,7 @@ Positive control (instrumentation really inside the libs):
 ./build/agent_fuzz_standalone --selftest          # deterministic logic check; no engine needed
 
 mkdir -p corpus && cp seeds/*.bin corpus/
+./build/agent_fuzz_standalone --gen-seeds corpus  # + 32 serialize-generated binary-representation seeds
 ./build/agent_fuzz -max_len=4096 -dict=xrce.dict -fork="$(nproc)" -max_total_time=900 corpus/
 ./build/agent_fuzz -runs=0 -print_coverage=1 corpus/   # which decoders are covered (see results §5/§6)
 ```
@@ -62,7 +63,12 @@ RepresentationFormat discriminators, the `XRCE` cookie, small XCDRv1 lengths).
   `InputMessage` (the safe outcome); ASan/UBSan catch memory-safety bugs.
 - Every crash is a **candidate** — minimize (`-minimize_crash=1`), root-cause, then run the
   [dedup gate](../known-territory.md) before any novelty claim.
-- **Known coverage gap** (results §6): the `REPRESENTATION_IN_BINARY` QoS sub-decoders
-  (`OBJK_*_Binary` / `*_QosBinary`, PL-CDR member-header structures) are input-reachable but not
-  reached by the byte mutator — the recommended next step is a grammar-aware / serialize-generated
-  seed set for that path.
+- **Stage 2 — binary entity representation.** At the `InputMessage` stage a
+  `REPRESENTATION_IN_BINARY` body is only an opaque octet sequence; the Agent decodes it in a
+  **second** Fast-CDR pass inside `<Entity>::create()` (`Participant.cpp`, `Topic.cpp`, …), with the
+  endianness taken from the `CREATE` submessage flags. The harness mirrors that pass
+  (`decode_binary_rep`), so the `OBJK_*_Binary` / `*_QosBinary` decoders are fuzzed as well.
+  `--gen-seeds` writes 32 valid seeds for it (8 entity kinds × minimal/full optionals × LE/BE),
+  built with the Agent's own `serialize()`; the self-test fails unless every one of them reaches
+  and clears its stage-2 decoder. Results:
+  [`../phase2-h3-binary-rep-fuzz-results.md`](../phase2-h3-binary-rep-fuzz-results.md).

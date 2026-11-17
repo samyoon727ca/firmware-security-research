@@ -63,10 +63,18 @@ PY
 
 echo "== 6. Internal doc links resolve =="
 python3 - <<'PY' && ok "internal links" || bad "internal links"
-import re,glob,os,sys
+import re,glob,os,subprocess,sys
 missing=0
-for f in glob.glob("**/*.md",recursive=True):
-    if ".git/" in f: continue
+# Tracked + untracked-but-unignored docs only: git-ignored trees (drafts/private/,
+# work/, build dirs) are not part of the repo and must not change the result.
+try:
+    files=subprocess.run(["git","ls-files","--cached","--others","--exclude-standard","--","*.md"],
+                         capture_output=True,text=True,check=True).stdout.splitlines()
+except Exception:
+    files=[f for f in glob.glob("**/*.md",recursive=True) if ".git/" not in f]
+for f in files:
+    if not os.path.exists(f): continue
+    if "/templates/" in f: continue   # fill-in skeletons: their links name files the user generates
     base=os.path.dirname(f)
     for m in re.findall(r"\]\(([^)]+)\)",open(f).read()):
         link=m.split("#")[0]

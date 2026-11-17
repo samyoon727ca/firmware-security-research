@@ -102,6 +102,14 @@ where Phase 2 should aim first.
 > `*_QosBinary`, XCDRv2 PL-CDR member-header structures) — reachable but not exercised by a byte
 > mutator; needs **grammar-aware / serialize-generated seeds** (next). Still-untouched: **H2**
 > (FRAGMENT reassembly in `Session`) and **H4** (session/privilege logic).
+>
+> **H3 binary-representation result (2026-11-11):** that named headroom is now **tested and clean**,
+> and its description above is corrected — the `OBJK_*_Binary` / `*_QosBinary` decoders run in a
+> *second* Fast-CDR pass inside `<Entity>::create()` (not on the `InputMessage` path), and are
+> XCDRv1 flag-prefixed optionals, not PL-CDR. With the harness mirroring that pass and 32
+> serialize-generated seeds: **0** crashes/OOMs at a 755-edge plateau, all 13 decoders exercised
+> ([`phase2-h3-binary-rep-fuzz-results.md`](phase2-h3-binary-rep-fuzz-results.md)). NVD re-checked
+> the same day: the Agent's CVE list is unchanged (CVE-2025-63547 / 63548).
 
 ### 2.5 ArduPilot → **PARTIAL (active academic RE) — cross-validator, not the bet**
 - **arXiv 2512.01164** — *Reverse Engineering and Control-Aware Security Analysis of the

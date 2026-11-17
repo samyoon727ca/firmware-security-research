@@ -64,16 +64,23 @@ Harness [`../research/uas-autonomy/agent_fuzz/`](../research/uas-autonomy/agent_
 build, no Fast-DDS); write-up
 [`../research/uas-autonomy/phase2-targetB-agent-parse-results.md`](../research/uas-autonomy/phase2-targetB-agent-parse-results.md).
 
-**Concrete next action** → the one input-reachable surface target B did **not** exercise is the
-`REPRESENTATION_IN_BINARY` **QoS sub-decoders** (`OBJK_*_Binary` / `*_QosBinary`, XCDRv2 PL-CDR
-member-header structures) — the most plausible remaining H3 headroom. Punch into it with a
-**grammar-aware / serialize-generated** seed set: a small generator that uses the Agent's own
-`serialize` to emit valid `CREATE`+`REPRESENTATION_IN_BINARY` objects (Fast-CDR then encodes the
-PL-CDR member headers), seeding `agent_fuzz`. After that: **H2** (FRAGMENT reassembly in
-`Session::push/pop_input_fragment` — needs the ProxyClient/Session layer) and **H4**
-(session/privilege logic, a differential/stateful test, not a byte-fuzz). Scope + ranking:
+**H3 binary representation done (2026-11-11):** the gap target B named — the
+`REPRESENTATION_IN_BINARY` decoders (`OBJK_*_Binary` / `*_QosBinary`) — is closed, and its diagnosis
+corrected. Those decoders are not on the `InputMessage` path at all: the Agent decodes the binary
+blob in a **second** Fast-CDR pass inside `<Entity>::create()`, so no seed could have reached them
+through the old harness. `agent_fuzz` now mirrors that pass and ships a `--gen-seeds` generator
+(32 messages built with the Agent's own `serialize`); ~240 M ASan/UBSan executions, **0**
+crashes, plateau 535 → 755 edges with all 13 binary decoders exercised. Write-up:
+[`../research/uas-autonomy/phase2-h3-binary-rep-fuzz-results.md`](../research/uas-autonomy/phase2-h3-binary-rep-fuzz-results.md).
+
+**Concrete next action** → the deserializer surface (H1, target B, H3) is now covered and clean.
+What the byte-fuzz rigs do not reach is logic outside the deserializers. Next in the published
+sequence: **H2** (FRAGMENT reassembly in `Session::push/pop_input_fragment` — needs the
+ProxyClient/Session layer) and **H4** (session/privilege logic, a differential/stateful test, not
+a byte-fuzz). Scope + ranking:
 [`../research/uas-autonomy/phase2-micro-xrce-dds-scope.md`](../research/uas-autonomy/phase2-micro-xrce-dds-scope.md);
-full sequence: [`track1-uas-run-plan.md`](track1-uas-run-plan.md). Reproduce H1 / target B: results §9 in each doc.
+full sequence: [`track1-uas-run-plan.md`](track1-uas-run-plan.md). Reproduce H1 / target B / H3: the
+*Reproduce* section of each results doc.
 
 Guardrails unchanged: WSL for the gate (keep it green), a new branch — never `main`, coordinated
 disclosure / no committed blobs, and
