@@ -11,8 +11,8 @@ frictionless restart.
 ## 0. Confirm state first (30 seconds)
 ```
 git checkout main                                   # tooling branches are merged
-tools/run-checks.sh                                 # clean checkout: 27 passed, 0 failed
-                                                    # (local work/ extraction adds SVGs -> 29; only failures matter)
+tools/run-checks.sh                                 # the bar is 0 failed (same gate runs in CI)
+tools/install-hooks.sh                              # once per clone: embargo-guard git hooks
 ```
 Read [`docs/artifact-plan.md`](artifact-plan.md) for the plan and
 [`docs/qualification-map.md`](qualification-map.md) for competency coverage.

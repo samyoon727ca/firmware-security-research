@@ -33,11 +33,20 @@ done < <(find .claude tools -name '*.sh' | sort)
 echo "== 3. Self-tests =="
 if python3 .claude/skills/finding-to-vendor-report/scripts/cvss.py --selftest >/dev/null 2>&1; then ok "cvss.py --selftest"; else bad "cvss.py --selftest"; fi
 if python3 tools/mavlink-sectest/mavlink_sectest.py --selftest >/dev/null 2>&1; then ok "mavlink_sectest.py --selftest"; else bad "mavlink_sectest.py --selftest"; fi
+if sh tools/embargo-guard.sh selftest >/dev/null 2>&1; then ok "embargo-guard.sh selftest"; else bad "embargo-guard.sh selftest"; fi
 
 echo "== 4. SVG well-formed =="
+# Tracked SVGs only, so the result is the same on a clean checkout and on a
+# workstation whose git-ignored work/ and build/ trees hold third-party SVGs.
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  svgs="$(git ls-files '*.svg' | sort)"
+else
+  svgs="$(find . -name '*.svg' -not -path './.git/*' | sort)"
+fi
 while IFS= read -r f; do
+  [ -n "$f" ] || continue
   if python3 -c "import xml.dom.minidom;xml.dom.minidom.parse('$f')" 2>/dev/null; then ok "$f"; else bad "xml $f"; fi
-done < <(find . -name '*.svg' -not -path './.git/*' | sort)
+done <<< "$svgs"
 
 echo "== 5. Mermaid blocks balanced =="
 python3 - <<'PY' && ok "mermaid blocks" || bad "mermaid blocks"
@@ -93,6 +102,48 @@ FIND=.claude/skills/finding-to-vendor-report/templates/finding.json
 python3 .claude/skills/finding-to-vendor-report/scripts/make_report.py "$FIND" --validate >/dev/null 2>&1 && ok "make_report --validate" || bad "make_report --validate"
 python3 .claude/skills/finding-to-cve-writeup/scripts/make_cve.py "$FIND" >/dev/null 2>&1 && ok "make_cve" || bad "make_cve"
 python3 .claude/skills/security-dataviz/scripts/diagram.py taint a b c >/dev/null 2>&1 && ok "diagram.py taint" || bad "diagram.py taint"
+
+echo "== 8. Rust crate (mavlink-signing) =="
+if have cargo; then
+  cargo test --quiet --manifest-path tools/mavlink-signing/Cargo.toml >/dev/null 2>&1 \
+    && ok "cargo test (mavlink-signing)" || bad "cargo test (mavlink-signing)"
+else
+  echo "  [skip] cargo absent; mavlink-signing tests not run"
+fi
+
+echo "== 9. Published writeups + finding records =="
+for f in writeups/*.md; do
+  [ -f "$f" ] || continue
+  python3 .claude/skills/finding-to-cve-writeup/scripts/sanitize_check.py "$f" >/dev/null 2>&1 \
+    && ok "sanitize_check $f" || bad "sanitize_check $f"
+done
+for f in research/*/finding.json; do
+  [ -f "$f" ] || continue
+  python3 .claude/skills/finding-to-vendor-report/scripts/make_report.py "$f" --validate >/dev/null 2>&1 \
+    && ok "make_report --validate $f" || bad "make_report --validate $f"
+done
+
+echo "== 10. Embargo guard (local only) =="
+# Applies only where pre-disclosure drafts exist (drafts/private/ in the main
+# checkout). A clean checkout / CI has none, so both checks are skipped there.
+MAIN="$(cd "$(git rev-parse --git-common-dir 2>/dev/null)/.." 2>/dev/null && pwd)"
+if [ -n "$MAIN" ] && [ -n "$(find "$MAIN/drafts/private" -type f -not -path '*/.git/*' 2>/dev/null | head -n 1)" ]; then
+  HOOKS="$(git rev-parse --git-common-dir)/hooks"
+  if cmp -s tools/embargo-guard.sh "$HOOKS/embargo-guard" \
+     && grep -q embargo-guard "$HOOKS/pre-commit" "$HOOKS/commit-msg" "$HOOKS/pre-push" 2>/dev/null; then
+    ok "embargo hooks installed and current"
+  else
+    bad "embargo hooks missing or stale (run tools/install-hooks.sh)"
+  fi
+  if [ -f "$MAIN/drafts/private/.embargo-patterns" ]; then
+    sh tools/embargo-guard.sh scan-tree >/dev/null 2>&1 && ok "no embargoed pattern in tracked/unignored files" \
+      || bad "embargoed pattern in tracked/unignored files (run tools/embargo-guard.sh scan-tree)"
+  else
+    bad "drafts/private/ has files but no .embargo-patterns"
+  fi
+else
+  echo "  [skip] no drafts/private/ content; nothing to guard"
+fi
 
 echo
 echo "==== $pass passed, $fail failed ===="

@@ -26,12 +26,13 @@ settings → App execution aliases.
 ## Verification
 
 `tools/run-checks.sh` is the deterministic gate (Python/shell parse, self-tests,
-SVG/mermaid/link checks, funnel smoke test). A fully-provisioned WSL on a **clean
-checkout** reports **27 passed, 0 failed**. (The SVG check scans the whole working
-tree, so after a live firmware extraction the git-ignored `work/` tree adds its own
-SVGs — the DrayTek rootfs contributes two `glyphicons-halflings-regular.svg`, giving
-**29 passed**. The extra count is expected; only *failures* matter.) Deps needed to
-reach that (one-time, needs sudo):
+SVG/mermaid/link checks, funnel smoke test, `cargo test` for the signing crate, the
+sanitize linter over `writeups/`, and `finding.json` validation). The same script runs
+in CI on every pull request and on `main` (`.github/workflows/checks.yml`). The bar is
+**0 failed**; the pass count is not a fixed number — steps whose toolchain is absent
+(`gcc`, `cargo`) print `[skip]`, and the embargo-guard section only runs where
+`drafts/private/` has content. SVG checks cover tracked files only, so git-ignored
+`work/` and build trees no longer change the result. Deps (one-time, needs sudo):
 
 ```bash
 sudo apt update && sudo apt install -y build-essential python3-dev python3-venv
@@ -105,6 +106,13 @@ the 2026-09-14 re-pick rationale (acquisition-feasibility gate → DrayTek).
   acquisition log, not the binaries.
 - Vulnerability work follows **coordinated disclosure**. Downloading vendor
   firmware and any outbound disclosure contact are user-confirmed steps.
+- **Embargo guard.** This repository is public. Pre-disclosure drafts live under the
+  git-ignored `drafts/private/`, and `tools/embargo-guard.sh` enforces that as git hooks
+  (pre-commit, commit-msg, pre-push): it blocks private paths and any added line, commit
+  message, or branch name matching the local, untracked `drafts/private/.embargo-patterns`.
+  Install once per clone with `tools/install-hooks.sh` (re-run after the guard changes);
+  audit the checkout with `tools/embargo-guard.sh scan-tree`. Never bypass with
+  `--no-verify`, and never copy the patterns file into a tracked path.
 
 ## Doc-consistency note
 
