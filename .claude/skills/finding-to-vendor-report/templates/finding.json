@@ -26,5 +26,5 @@
   "impact": "Full pre-auth root compromise of the device from the local network, enabling traffic interception, persistence, and pivoting to other LAN hosts. If exposed to WAN via remote management, exploitable remotely.",
   "remediation": "Validate/allowlist the `host` parameter (numeric IP / hostname charset only) before use; replace sprintf()+doSystem() with an execv()-style call that does not invoke a shell; drop privileges for the CGI handler.",
   "discovery_method": "Version-to-version binary diff (firmware v1 -> v2) flagged a silent hardening of this handler; the vulnerable path was confirmed in the earlier release via Ghidra and reproduced in QEMU emulation.",
-  "disclosure": { "reported": "YYYY-MM-DD", "target_public": "90 days from report" }
+  "disclosure": { "reported": "YYYY-MM-DD", "target_public": "90 days from report", "validated": "", "advisory_id": "", "cve_id": "" }
 }
