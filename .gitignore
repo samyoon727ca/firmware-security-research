@@ -53,6 +53,9 @@ drafts/private/
 target/
 
 # --- OS / editor / language noise ---
+# Obsidian workspace state records recently opened file paths, including ones
+# under drafts/private/ — never commit it.
+.obsidian/
 .DS_Store
 Thumbs.db
 *.swp
