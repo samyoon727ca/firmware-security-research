@@ -95,6 +95,16 @@ OOB-read class is structurally defended; the resize-to-attacker-length OOM class
 
 ## 6. Coverage gap — honest boundary (what was NOT exercised)
 
+> **Correction (2026-11-11) — the diagnosis below was wrong; the gap is now closed.** The
+> `OBJK_*_Binary` / `*_QosBinary` decoders are **not on the `InputMessage` parse path at all**: at
+> that stage a binary representation is an opaque octet sequence, and the Agent decodes it in a
+> *second* Fast-CDR pass inside `<Entity>::create()`. No seed could have reached them through this
+> harness as it stood — it was a harness-reach gap, not a mutator limitation. The structures are
+> also plain flag-prefixed optional members under XCDRv1, not XCDRv2 PL-CDR member headers. The
+> harness now mirrors the second pass and the decoders have been fuzzed:
+> [`phase2-h3-binary-rep-fuzz-results.md`](phase2-h3-binary-rep-fuzz-results.md). The original text
+> is kept below as the record of what was believed on 2026-10-01.
+
 `-print_coverage=1` shows the input-reachable decoders the fuzzer did **not** reach: the inner
 **`REPRESENTATION_IN_BINARY` QoS sub-structures** —
 `OBJK_DomainParticipant_Binary`, `OBJK_{DataReader,DataWriter,Publisher,Subscriber,Topic}_Binary`,
