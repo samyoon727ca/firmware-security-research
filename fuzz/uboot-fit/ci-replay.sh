@@ -14,10 +14,15 @@
 #
 # Seeds come from replay/: each *.its is compiled to a FIT with the tree's own
 # mkimage (and must list cleanly with mkimage -l, so the seed is known to be a
-# valid FIT); any other file except *.md is replayed as is. Every seed must be
-# a FIT that fit_check_format() accepts: after the fuzz target itself, the
-# seeds are replayed through fuzz_fit_check_format_accept, which aborts on a
-# rejected input, so a seed that only reaches the first error branch fails.
+# valid FIT); each *.fit is a signed seed from make_seed.sh, replayed as is.
+# control-dev.dtb is the control devicetree holding the dev key: it is copied
+# into the run directory, where the target reads it, and is not a seed; nor is
+# *.sha256 or *.md. Every seed must be a FIT that fit_check_format() accepts:
+# after the fuzz target itself, the seeds are replayed through
+# fuzz_fit_check_format_accept, which aborts on a rejected input, so a seed
+# that only reaches the first error branch fails. The signed seeds then go
+# through fuzz_fit_config_verify_check, which aborts unless each one verifies
+# against control-dev.dtb and the same FIT with a kernel byte flipped does not.
 #
 # The full libFuzzer/ASan log goes to <out>/results/ and is printed only
 # outside CI ($CI / $GITHUB_ACTIONS unset). Under CI the job prints the seed and
@@ -62,13 +67,17 @@ have=$(head -n 1 "$B/toolchain.txt")
 
 # --- Seeds ----------------------------------------------------------------------
 R=$OUT/replay
-rm -rf "$R" && mkdir -p "$R"
+S=$OUT/signed
+rm -rf "$R" "$S" && mkdir -p "$R" "$S"
+[[ -f $HERE/replay/control-dev.dtb ]] || die "no replay/control-dev.dtb (run make_seed.sh)"
+cp "$HERE/replay/control-dev.dtb" "$B/control-dev.dtb"
 epoch=$(sed -n 's/^source_date_epoch //p' "$B/toolchain.txt")
 shopt -s nullglob
 for f in "$HERE"/replay/*; do
   name=$(basename "$f")
   case $name in
-    *.md) ;;
+    *.md|*.sha256|control-dev.dtb) ;;
+    *.fit) cp "$f" "$R/$name"; cp "$f" "$S/$name" ;;
     *.its)
       # mkimage runs "dtc" from PATH: use the tree's own. SOURCE_DATE_EPOCH
       # fixes the timestamp, so the seed is the same bytes on every run.
@@ -82,18 +91,20 @@ for f in "$HERE"/replay/*; do
 done
 seeds=("$R"/*)
 (( ${#seeds[@]} )) || die "no seeds in $HERE/replay"
+signed=("$S"/*)
+(( ${#signed[@]} )) || die "no signed *.fit seeds in $HERE/replay (run make_seed.sh)"
 
 # --- Replay -----------------------------------------------------------------------
 # The sandbox thread starts as "./u-boot -T" and finds test.dtb (which holds
 # the fuzzing-engine device) relative to the working directory, hence the cd.
 # Logs and artefacts from a failing seed go to <out>/results/, which stays local.
 mkdir -p "$OUT/results"
-replay() { # fuzz test: run every seed through it once, with -runs=0
-  local name=$1 log=$OUT/results/$1.log rc runs
+replay() { # fuzz test, seed dir, seed count: run every seed through it once, with -runs=0
+  local name=$1 dir=$2 n=$3 log=$OUT/results/$1.log rc runs
   set +e
   ( cd "$B" && UBOOT_SB_FUZZ_TEST=$name \
       ASAN_OPTIONS=${ASAN_OPTIONS:-abort_on_error=1:detect_leaks=0} \
-      ./u-boot -runs=0 -artifact_prefix="$OUT/results/" "$R" ) > "$log" 2>&1
+      ./u-boot -runs=0 -artifact_prefix="$OUT/results/" "$dir" ) > "$log" 2>&1
   rc=$?
   set -e
   # The log can hold a sanitizer stack trace and the Base64 of a crashing
@@ -107,14 +118,19 @@ replay() { # fuzz test: run every seed through it once, with -runs=0
   fi
   if in_ci; then grep -E '^INFO: seed corpus: files:|^Done [0-9]+ runs' "$log" || true; fi
   # libFuzzer must have read every seed, or the run proved nothing.
-  grep -qE "INFO: seed corpus: files: ${#seeds[@]} " "$log" \
-    || die "$name: libFuzzer did not load all ${#seeds[@]} seed(s)"
+  grep -qE "INFO: seed corpus: files: $n " "$log" \
+    || die "$name: libFuzzer did not load all $n seed(s)"
   # With -runs=0 libFuzzer executes an empty input plus each seed, then stops;
   # any more executions would mean it mutated, which this job must never do.
   runs=$(sed -n 's/^Done \([0-9][0-9]*\) runs .*/\1/p' "$log")
   [[ -n $runs ]] || die "$name: libFuzzer did not report its run count"
-  (( runs <= ${#seeds[@]} + 1 )) || die "$name: libFuzzer ran $runs inputs for ${#seeds[@]} seed(s): it mutated"
+  (( runs <= n + 1 )) || die "$name: libFuzzer ran $runs inputs for $n seed(s): it mutated"
 }
-replay fuzz_fit_check_format          # the fuzz target: no crash on any seed
-replay fuzz_fit_check_format_accept   # the seeds pass fit_check_format() in this build
+replay fuzz_fit_check_format "$R" ${#seeds[@]}          # the fuzz target: no crash on any seed
+replay fuzz_fit_check_format_accept "$R" ${#seeds[@]}   # the seeds pass fit_check_format() in this build
 echo "replayed ${#seeds[@]} seed(s) through fuzz_fit_check_format: no crash, all accepted"
+# The signed seeds verify against control-dev.dtb; a flipped kernel byte is rejected.
+replay fuzz_fit_config_verify_check "$S" ${#signed[@]}
+ok=$(grep -c '^fit_fuzz: [0-9]*-byte signed seed verifies; kernel tampering rejected' "$OUT/results/fuzz_fit_config_verify_check.log" || true)
+(( ok >= ${#signed[@]} )) || die "fuzz_fit_config_verify_check: only $ok of ${#signed[@]} signed seed(s) reported a pass"
+echo "${#signed[@]} signed seed(s) verify against control-dev.dtb; tampered copies rejected"
