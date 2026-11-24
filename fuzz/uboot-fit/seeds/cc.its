@@ -1,0 +1,52 @@
+/*
+ * Provenance: copied from samyoon727ca/uas-sec-p2-verified-boot, cc/fit/cc.its
+ * at commit b4da705bba83fceebbfb6b8e5f43d5d6bcfcbb4f (2026-10-11). The node
+ * layout, hash and signature nodes are unchanged; the kernel description is
+ * reworded because the payloads are not a real kernel. fuzz/uboot-fit/
+ * make_seed.sh writes Image.gz, kernel.dtb and initramfs.cpio.gz as a few KiB
+ * of fixed dummy bytes next to a copy of this file and signs it with a
+ * dev-only key; the result is replay/p2-signed.fit.
+ *
+ * Original header follows.
+ *
+ * FIT source for the emulated CC boot chain (docs/02-cc-boot-chain.md §2.2).
+ * One configuration, signed with K-CC-OS. The signature covers the kernel,
+ * the devicetree and the initramfs together (sign-images, DD2-04), so images
+ * from different releases cannot be mixed. tests/ve07 signs it per run with
+ * a dev key; mkimage -K writes the public key into U-Boot's control
+ * devicetree with required = "conf".
+ */
+/dts-v1/;
+/ {
+	description = "P2 emulated CC boot chain";
+	#address-cells = <1>;
+	images {
+		kernel {
+			description = "dummy payload (fuzz seed, not a kernel)";
+			data = /incbin/("Image.gz");
+			type = "kernel"; arch = "arm64"; os = "linux"; compression = "gzip";
+			load = <0x40400000>; entry = <0x40400000>;
+			hash { algo = "sha256"; };
+		};
+		fdt {
+			data = /incbin/("kernel.dtb");
+			type = "flat_dt"; arch = "arm64"; compression = "none";
+			hash { algo = "sha256"; };
+		};
+		ramdisk {
+			data = /incbin/("initramfs.cpio.gz");
+			type = "ramdisk"; arch = "arm64"; os = "linux"; compression = "none";
+			hash { algo = "sha256"; };
+		};
+	};
+	configurations {
+		default = "conf";
+		conf {
+			kernel = "kernel"; fdt = "fdt"; ramdisk = "ramdisk";
+			signature {
+				algo = "sha256,rsa3072"; key-name-hint = "cc-os-dev";
+				sign-images = "kernel", "fdt", "ramdisk";
+			};
+		};
+	};
+};

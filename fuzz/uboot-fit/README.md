@@ -4,7 +4,10 @@ In-process libFuzzer + ASan target for **U-Boot's FIT parser** as the boot loade
 U-Boot **sandbox** built from the pinned **v2026.07** release tarball (the same pin as P2's
 verified-boot chain), with `fit_check_format()` fed one fuzzer input per call. That function is
 the first code to touch a loaded FIT, **before** the signature check (P2 SR-005.1), so every
-byte it reads is attacker-chosen.
+byte it reads is attacker-chosen. When the format check passes, the target runs
+`fit_config_verify()` on the default configuration against a control devicetree holding a
+`required = "conf"` key, as P2's boot loader does: config lookup, `hashed-nodes`, region
+building, then the RSA check.
 
 Phase 0 is the kill switch: it shows that the sandbox builds with clang + libFuzzer and links
 the target, and CI replays a committed seed through it. It does no fuzzing campaign.
@@ -28,8 +31,10 @@ the target, and CI replays a committed seed through it. It does no fuzzing campa
 | `pin.txt` | U-Boot release: version, tarball URL + mirrors, SHA-256, `SOURCE_DATE_EPOCH` |
 | `build.sh` | download → SHA-256 check (fails closed) → unpack into `build/` → patch the target in → build |
 | `fuzz.config` | Kconfig fragment over `sandbox_defconfig`: `CONFIG_FUZZ` (libFuzzer + ASan), `FIT`, `FIT_SIGNATURE`, `FIT_FULL_CHECK`, no legacy images (as P2's `p2.config`) |
-| `fit_fuzz.c` | the target, `FUZZ_TEST(fuzz_fit_check_format)`, plus the replay-only seed check `fuzz_fit_check_format_accept`; copied into the tree's `test/fuzz/` at build time |
-| `replay/` | committed seeds, each a FIT `fit_check_format()` accepts; `minimal.its` is compiled with the tree's own `mkimage` |
+| `fit_fuzz.c` | the target, `FUZZ_TEST(fuzz_fit_check_format)`, plus the replay-only seed checks `fuzz_fit_check_format_accept` and `fuzz_fit_config_verify_check`; copied into the tree's `test/fuzz/` at build time |
+| `seeds/cc.its` | P2's FIT source (`cc/fit/cc.its` in `uas-sec-p2-verified-boot`, provenance in the file): kernel + fdt + ramdisk, sha256 hashes, one config signed with `sign-images` |
+| `make_seed.sh` | signs `seeds/cc.its` over dummy payloads with a dev-only key and the tree's own `mkimage`; writes the three `replay/` files below |
+| `replay/` | committed seeds, each a FIT `fit_check_format()` accepts. `minimal.its` is compiled with the tree's own `mkimage`; `p2-signed.fit` is the signed seed, `control-dev.dtb` the control DTB with its public key (`required = "conf"`), `p2-signed.kernel.sha256` the SHA-256 of its kernel payload |
 | `ci-replay.sh` | build, then replay `replay/` with `-runs=0` (never mutates); used by `.github/workflows/uboot-fit.yml` |
 
 ## Build
@@ -59,18 +64,46 @@ fuzz/uboot-fit/ci-replay.sh --no-build   # replay against an existing build/
 `ci-replay.sh` replays the seeds twice, both with `-runs=0`: through the fuzz target (no crash
 or sanitizer report), then through `fuzz_fit_check_format_accept`, which aborts unless
 `fit_check_format()` returns 0. The second run shows the seeds get past the format check in this
-build, so they reach the parser code after it, not only its first error branch. Either way the
+build, so they reach the parser code after it, not only its first error branch.
+
+A third run replays the signed seeds (`replay/*.fit`) through `fuzz_fit_config_verify_check`,
+which aborts unless each one passes `fit_config_verify()` against `control-dev.dtb` and its
+kernel passes `fit_image_verify()`, and unless both tampered copies are rejected: one kernel
+payload byte flipped (caught by the kernel's hash check; the config signature leaves out
+`data` and covers the hash value instead, and the check asserts that too) and one byte of the
+kernel's hash value flipped (caught by `fit_config_verify()`). Either way the
 binary must come from the `--version-file` pin: `ci-replay.sh` compares its version and SHA-256
 with `build/sandbox/toolchain.txt`, so `--no-build` cannot replay a build of another release.
 
-To run one input by hand: the sandbox finds `test.dtb` relative to the working directory, so
-run from the build directory and pass absolute paths (`build/replay/` holds the compiled seeds
-once `ci-replay.sh` has run):
+To run one input by hand: the sandbox finds `test.dtb`, and the target `control-dev.dtb`,
+relative to the working directory, so run from the build directory and pass absolute paths
+(`ci-replay.sh` copies `control-dev.dtb` there, and `build/replay/` holds the compiled seeds once
+it has run). The target aborts if `control-dev.dtb` is missing: the sandbox's own control DTB
+has no key, and `fit_config_verify()` accepts any FIT against it.
 
 ```bash
 cd fuzz/uboot-fit/build/sandbox
 UBOOT_SB_FUZZ_TEST=fuzz_fit_check_format ./u-boot -runs=0 "$PWD/../replay"
 ```
+
+## Regenerating the signed seed
+
+```bash
+fuzz/uboot-fit/build.sh          # or ci-replay.sh: the pinned tree's mkimage, dtc, fit_check_sign
+fuzz/uboot-fit/make_seed.sh      # rewrites replay/p2-signed.fit, control-dev.dtb, p2-signed.kernel.sha256
+```
+
+`make_seed.sh` refuses a build that is not from `pin.txt`. It copies `seeds/cc.its` next to
+fixed dummy payloads (a few KiB each, not a kernel), signs it with
+`mkimage -f cc.its -k keys -K control.dtb -r` (`SOURCE_DATE_EPOCH` from the pin) and checks the
+result with the tree's `fit_check_sign`. Commit the three `replay/` files together: the seed only
+verifies against the control DTB made in the same run.
+
+**The key is dev-only.** It is an RSA-3072 key, `keys/cc-os-dev.key` (+ `.crt`), created by
+`make_seed.sh` on first use and reused after; delete `keys/` to rotate it. `keys/` is git-ignored
+and the private key is never committed: CI needs only the committed public half in
+`control-dev.dtb`. It signs nothing but these fuzz seeds and has no relation to any P2 or
+release key.
 
 ## Notes
 
@@ -80,8 +113,8 @@ UBOOT_SB_FUZZ_TEST=fuzz_fit_check_format ./u-boot -runs=0 "$PWD/../replay"
 - Inputs under one FDT header (40 bytes) are skipped: `fdt_check_header()` reads a whole header
   before it checks the size, because every real caller has that much memory behind the pointer.
 - **`--out` safety.** `build.sh` deletes and recreates `<out>/src` and `<out>/sandbox`, and
-  `ci-replay.sh` recreates `<out>/replay`, so both refuse an `--out` that is not new, empty, or
-  marked with the `.uboot-fit-build` file `build.sh` writes there.
+  `ci-replay.sh` recreates `<out>/replay` and `<out>/signed`, so both refuse an `--out` that is
+  not new, empty, or marked with the `.uboot-fit-build` file `build.sh` writes there.
 - **Older releases (v2021.01, for the CVE-2021-27138 oracle task).** The pin is overridable, but
   this build path does not carry over as is: trees from before roughly 2022 have no
   `test/fuzz/` `FUZZ_TEST` mechanism (`build.sh` stops with a clear error), and their
