@@ -40,7 +40,23 @@ done < <({ find .claude tools -name '*.sh'; printf '%s\n' "$fuzz_sh"; } | sort)
 
 echo "== 3. Self-tests =="
 if python3 .claude/skills/finding-to-vendor-report/scripts/cvss.py --selftest >/dev/null 2>&1; then ok "cvss.py --selftest"; else bad "cvss.py --selftest"; fi
-if python3 tools/mavlink-sectest/mavlink_sectest.py --selftest >/dev/null 2>&1; then ok "mavlink_sectest.py --selftest"; else bad "mavlink_sectest.py --selftest"; fi
+# Outside CI, a missing pymavlink skips only the roundtrip (the selftest prints
+# a [SKIP] line); the offline logic checks still decide the result.
+if mav_out="$(python3 tools/mavlink-sectest/mavlink_sectest.py --selftest 2>&1)"; then
+  ok "mavlink_sectest.py --selftest"
+  if printf '%s\n' "$mav_out" | grep -q '\[SKIP\] pymavlink roundtrip'; then
+    echo "  [skip] mavlink_sectest.py pymavlink roundtrip: pymavlink not installed and \$CI unset"
+  fi
+else
+  bad "mavlink_sectest.py --selftest"
+fi
+# With pymavlink made unimportable, the selftest must fail under CI=true and pass without CI.
+mav_noimport='import runpy,sys; sys.modules["pymavlink"]=None; sys.argv=["mavlink_sectest.py","--selftest"]; runpy.run_path("tools/mavlink-sectest/mavlink_sectest.py",run_name="__main__")'
+if ! CI=true python3 -c "$mav_noimport" >/dev/null 2>&1 && (unset CI; python3 -c "$mav_noimport" >/dev/null 2>&1); then
+  ok "mavlink selftest: missing pymavlink fails under CI, skips outside"
+else
+  bad "mavlink selftest: missing pymavlink fails under CI, skips outside"
+fi
 if sh tools/embargo-guard.sh selftest >/dev/null 2>&1; then ok "embargo-guard.sh selftest"; else bad "embargo-guard.sh selftest"; fi
 
 echo "== 4. SVG well-formed =="
@@ -102,8 +118,17 @@ if have gcc; then
   printf 'admin:x:0:0::/:/bin/sh\n' > "$RF/etc/passwd"
   bash .claude/skills/firmware-triage/scripts/triage.sh "$RF" "$T/out" >/dev/null 2>&1 \
     && [ -f "$T/out/inventory.txt" ] && ok "triage.sh" || bad "triage.sh"
-  python3 .claude/skills/firmware-triage/scripts/sink_scan.py "$RF" --out "$T/sinks.csv" >/dev/null 2>&1 \
-    && grep -q httpd "$T/sinks.csv" && ok "sink_scan.py" || bad "sink_scan.py"
+  # sink_scan.py only scans ELF binaries. A host compiler that writes another
+  # format (macOS clang -> Mach-O) can't exercise the httpd assertion, so skip it
+  # there with a reason; the CSV is still produced for chart.py below.
+  # A missing binary (compile failure) takes the ELF branch and fails as before.
+  if [ ! -f "$RF/bin/httpd" ] || [ "$(head -c 4 "$RF/bin/httpd" | od -An -tx1 | tr -d ' \n')" = "7f454c46" ]; then
+    python3 .claude/skills/firmware-triage/scripts/sink_scan.py "$RF" --out "$T/sinks.csv" >/dev/null 2>&1 \
+      && grep -q httpd "$T/sinks.csv" && ok "sink_scan.py" || bad "sink_scan.py"
+  else
+    python3 .claude/skills/firmware-triage/scripts/sink_scan.py "$RF" --out "$T/sinks.csv" >/dev/null 2>&1
+    echo "  [skip] sink_scan.py: host gcc did not produce an ELF test httpd; ELF sink scan not exercised (CI runs it)"
+  fi
   cp -r "$RF" "$T/rootfs2"; printf '#!/bin/sh\nsafe_ping "$QUERY_STRING"\n' > "$T/rootfs2/www/cgi-bin/p.cgi"
   python3 .claude/skills/binary-diff/scripts/fw_diff.py "$RF" "$T/rootfs2" --out "$T/diff" >/dev/null 2>&1 \
     && [ -f "$T/diff/diff-candidates.csv" ] && ok "fw_diff.py" || bad "fw_diff.py"

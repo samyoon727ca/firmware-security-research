@@ -22,6 +22,7 @@ import argparse
 import csv
 import hashlib
 import json
+import os
 import struct
 import sys
 import time
@@ -270,6 +271,7 @@ def write_outputs(results, out_json, out_csv):
 # =============================================================================
 def selftest():
     ok = True
+    skipped = 0
 
     def check(name, got, want):
         nonlocal ok
@@ -295,21 +297,32 @@ def selftest():
     check("replay first-seen", rd.seen(b), False)
     check("replay second-seen", rd.seen(b), True)
 
-    # real pymavlink encode/decode roundtrip
+    # real pymavlink encode/decode roundtrip. Outside CI ($CI unset) a missing
+    # pymavlink skips only this check; in CI it is required and still fails.
     try:
         from pymavlink.dialects.v20 import common as mav
-        link = mav.MAVLink(None, srcSystem=1, srcComponent=1)
-        hb = link.heartbeat_encode(mav.MAV_TYPE_GCS, mav.MAV_AUTOPILOT_INVALID, 0, 0, 0)
-        buf = hb.pack(link)
-        parser = mav.MAVLink(None); parser.robust_parsing = True
-        msgs = parser.parse_buffer(buf) or []
-        got = [m.get_type() for m in msgs]
-        check("pymavlink roundtrip", "HEARTBEAT" in got, True)
-    except Exception as e:
-        ok = False
-        print(f"  [FAIL] pymavlink roundtrip raised: {e}")
+    except ImportError as e:
+        if os.environ.get("CI"):
+            ok = False
+            print(f"  [FAIL] pymavlink roundtrip: pymavlink not importable in CI: {e}")
+        else:
+            print(f"  [SKIP] pymavlink roundtrip: pymavlink not installed and $CI unset: {e}")
+            skipped = 1
+        mav = None
+    if mav is not None:
+        try:
+            link = mav.MAVLink(None, srcSystem=1, srcComponent=1)
+            hb = link.heartbeat_encode(mav.MAV_TYPE_GCS, mav.MAV_AUTOPILOT_INVALID, 0, 0, 0)
+            buf = hb.pack(link)
+            parser = mav.MAVLink(None); parser.robust_parsing = True
+            msgs = parser.parse_buffer(buf) or []
+            got = [m.get_type() for m in msgs]
+            check("pymavlink roundtrip", "HEARTBEAT" in got, True)
+        except Exception as e:
+            ok = False
+            print(f"  [FAIL] pymavlink roundtrip raised: {e}")
 
-    print("selftest:", "ALL PASS" if ok else "FAILURES")
+    print("selftest:", ("ALL PASS" if ok else "FAILURES") + (f" ({skipped} skipped)" if skipped else ""))
     return 0 if ok else 1
 
 
