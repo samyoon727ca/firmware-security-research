@@ -72,6 +72,10 @@ research/
   uas-autonomy/                Run 4 working area: known-territory dedup map, Micro-XRCE-DDS
                                Agent scope + hypotheses, fuzz harnesses (ucdr_fuzz, agent_fuzz,
                                xrce_probe) and a results write-up per campaign
+fuzz/
+  uboot-fit/                   U-Boot FIT parser fuzz target: pinned v2026.07 sandbox built with
+                               libFuzzer + ASan, fit_check_format() harness, CI seed replay
+                               (Phase 0; sources, corpora and results git-ignored)
 writeups/
   dir-816l-hnap-soapaction-cmdinjection.md  Track 1 case study: patch-diffing rediscovers an
                                n-day unauth HNAP command injection (CVE-2015-2051 class)
