@@ -1,0 +1,12 @@
+# Build tree, fuzzing artifacts and results — never commit these. U-Boot
+# sources and built binaries are fetched/rebuilt from pin.txt; findings stay
+# local until disclosure (see README.md).
+build/
+corpus/
+crash-*
+leak-*
+oom-*
+timeout-*
+results/
+keys/
+*.log

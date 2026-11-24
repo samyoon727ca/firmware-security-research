@@ -1,0 +1,49 @@
+name: uboot-fit
+
+# Builds the U-Boot sandbox FIT fuzz target (fuzz/uboot-fit/) from the pinned
+# tarball and replays the committed seeds through it. Replay only: libFuzzer
+# runs with -runs=0 and never mutates inputs. No secrets are used.
+
+on:
+  pull_request:
+    paths:
+      - "fuzz/uboot-fit/**"
+      - ".github/workflows/uboot-fit.yml"
+  push:
+    branches: [main]
+    paths:
+      - "fuzz/uboot-fit/**"
+      - ".github/workflows/uboot-fit.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uboot-fit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  replay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      # Actions are pinned to full commit SHAs (tag in the trailing comment).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install U-Boot sandbox build dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends \
+            clang llvm libclang-rt-dev make bison flex bc libssl-dev libgnutls28-dev uuid-dev \
+            python3-dev python3-setuptools swig pkg-config
+
+      - name: Tool versions
+        run: |
+          clang --version | head -n 1
+          make --version | head -n 1
+
+      # results/ (replay logs, crash artefacts) is never uploaded or printed here.
+      - name: Build and replay the seeds
+        run: bash fuzz/uboot-fit/ci-replay.sh
