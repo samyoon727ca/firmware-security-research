@@ -25,8 +25,8 @@ the target, and CI replays a committed seed through it. It does no fuzzing campa
 | `pin.txt` | U-Boot release: version, tarball URL + mirrors, SHA-256, `SOURCE_DATE_EPOCH` |
 | `build.sh` | download → SHA-256 check (fails closed) → unpack into `build/` → patch the target in → build |
 | `fuzz.config` | Kconfig fragment over `sandbox_defconfig`: `CONFIG_FUZZ` (libFuzzer + ASan), `FIT`, `FIT_SIGNATURE`, `FIT_FULL_CHECK`, no legacy images (as P2's `p2.config`) |
-| `fit_fuzz.c` | the target, `FUZZ_TEST(fuzz_fit_check_format)`; copied into the tree's `test/fuzz/` at build time |
-| `replay/` | committed seeds; `minimal.its` is compiled to a FIT with the tree's own `mkimage` |
+| `fit_fuzz.c` | the target, `FUZZ_TEST(fuzz_fit_check_format)`, plus the replay-only seed check `fuzz_fit_check_format_accept`; copied into the tree's `test/fuzz/` at build time |
+| `replay/` | committed seeds, each a FIT `fit_check_format()` accepts; `minimal.its` is compiled with the tree's own `mkimage` |
 | `ci-replay.sh` | build, then replay `replay/` with `-runs=0` (never mutates); used by `.github/workflows/uboot-fit.yml` |
 
 ## Build
@@ -53,6 +53,13 @@ fuzz/uboot-fit/ci-replay.sh              # build + replay
 fuzz/uboot-fit/ci-replay.sh --no-build   # replay against an existing build/
 ```
 
+`ci-replay.sh` replays the seeds twice, both with `-runs=0`: through the fuzz target (no crash
+or sanitizer report), then through `fuzz_fit_check_format_accept`, which aborts unless
+`fit_check_format()` returns 0. The second run shows the seeds get past the format check in this
+build, so they reach the parser code after it, not only its first error branch. Either way the
+binary must come from the `--version-file` pin: `ci-replay.sh` compares its version and SHA-256
+with `build/sandbox/toolchain.txt`, so `--no-build` cannot replay a build of another release.
+
 To run one input by hand: the sandbox finds `test.dtb` relative to the working directory, so
 run from the build directory and pass absolute paths (`build/replay/` holds the compiled seeds
 once `ci-replay.sh` has run):
@@ -78,9 +85,7 @@ UBOOT_SB_FUZZ_TEST=fuzz_fit_check_format ./u-boot -runs=0 "$PWD/../replay"
   `fit_check_format()` takes no size argument, so `fit_fuzz.c` does not compile there. That task
   needs its own entry point (a standalone `LLVMFuzzerTestOneInput`) or a backport of the fuzz
   mechanism.
-- **Pin cross-check pending.** `pin.txt` is meant to match `cc/uboot/pin.txt` in
-  `uas-sec-p2-verified-boot`. The SHA-256 was checked against the tarball the release mirrors
-  serve, but not yet diffed against P2's file; someone with access to P2 should compare the
-  `url` and `sha256` lines.
+- **Pin.** `pin.txt` was checked against `cc/uboot/pin.txt` in `uas-sec-p2-verified-boot`: the
+  version, URL, SHA-256, mirrors, commit and `SOURCE_DATE_EPOCH` all match.
 - Every crash is a **candidate**, not a finding: minimize, root-cause in source, and run the
   dedup gate before any claim of novelty.

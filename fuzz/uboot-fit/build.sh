@@ -134,7 +134,8 @@ ulimit -n "$(ulimit -Hn)" 2>/dev/null || true
 
 # The link must carry the libFuzzer entry point, ASan and the FIT target.
 syms=$(nm "$B/u-boot")
-for sym in LLVMFuzzerTestOneInput __asan_init fuzz_fit_check_format fit_check_format; do
+for sym in LLVMFuzzerTestOneInput __asan_init fuzz_fit_check_format fuzz_fit_check_format_accept \
+           fit_check_format; do
   grep -qE "[[:space:]]$sym\$" <<< "$syms" || die "u-boot does not define $sym"
 done
 [[ -f $B/arch/sandbox/dts/test.dtb ]] || die "no test.dtb (the fuzzing-engine device lives in it)"
