@@ -18,6 +18,11 @@
 # a FIT that fit_check_format() accepts: after the fuzz target itself, the
 # seeds are replayed through fuzz_fit_check_format_accept, which aborts on a
 # rejected input, so a seed that only reaches the first error branch fails.
+#
+# The full libFuzzer/ASan log goes to <out>/results/ and is printed only
+# outside CI ($CI / $GITHUB_ACTIONS unset). Under CI the job prints the seed and
+# run counts on success and only the fuzz-test name and exit code on failure:
+# no stack trace, input bytes or crash-file name reaches a public CI log.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 PIN=$HERE/pin.txt
@@ -25,6 +30,7 @@ OUT=$HERE/build
 BUILD=1
 
 die() { echo "ci-replay.sh: $*" >&2; exit 1; }
+in_ci() { [[ -n ${CI:-} || -n ${GITHUB_ACTIONS:-} ]]; }
 
 while (( $# )); do
   case $1 in
@@ -90,8 +96,16 @@ replay() { # fuzz test: run every seed through it once, with -runs=0
       ./u-boot -runs=0 -artifact_prefix="$OUT/results/" "$R" ) > "$log" 2>&1
   rc=$?
   set -e
-  cat "$log"
-  (( rc == 0 )) || die "$name: replay failed (exit $rc); see $log"
+  # The log can hold a sanitizer stack trace and the Base64 of a crashing
+  # input, so under CI it stays in results/ and only counts are printed.
+  if ! in_ci; then cat "$log"; fi
+  if (( rc != 0 )); then
+    if in_ci; then
+      die "$name: replay failed (exit $rc); full log kept locally in results/ (not printed under CI)"
+    fi
+    die "$name: replay failed (exit $rc); see $log"
+  fi
+  if in_ci; then grep -E '^INFO: seed corpus: files:|^Done [0-9]+ runs' "$log" || true; fi
   # libFuzzer must have read every seed, or the run proved nothing.
   grep -qE "INFO: seed corpus: files: ${#seeds[@]} " "$log" \
     || die "$name: libFuzzer did not load all ${#seeds[@]} seed(s)"

@@ -81,6 +81,12 @@ a byte-fuzz). Scope + ranking:
 full sequence: [`track1-uas-run-plan.md`](track1-uas-run-plan.md). Reproduce H1 / target B / H3: the
 *Reproduce* section of each results doc.
 
+**P7.4 — U-Boot FIT fuzz target, Phase 0 built:** the pinned v2026.07 sandbox builds with
+libFuzzer + ASan and links a `fit_check_format()` harness (U-Boot's own `FUZZ_TEST` mechanism);
+CI replays the committed seed only, with no mutation and no raw sanitizer log in the public job
+output. See [`../fuzz/uboot-fit/README.md`](../fuzz/uboot-fit/README.md). Next: a
+`fit_config_verify` target with a dev key, then the signature-bypass oracle.
+
 Guardrails unchanged: WSL for the gate (keep it green), a new branch — never `main`, coordinated
 disclosure / no committed blobs, and
 keep the docs (README map, roadmap, this file) consistent on any status change.

@@ -26,9 +26,17 @@ while IFS= read -r f; do
 done < <(find .claude tools -name '*.py' | sort)
 
 echo "== 2. Shell syntax =="
+# fuzz/ scripts from tracked files only: a local fuzz/uboot-fit/build.sh run
+# unpacks the whole U-Boot source (with its own *.sh) into git-ignored build/.
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  fuzz_sh="$(git ls-files 'fuzz/*.sh')"
+else
+  fuzz_sh="$(find fuzz -name '*.sh' -not -path '*/build/*')"
+fi
 while IFS= read -r f; do
+  [ -n "$f" ] || continue
   if bash -n "$f" 2>/dev/null; then ok "$f"; else bad "bash -n $f"; fi
-done < <(find .claude tools fuzz -name '*.sh' | sort)
+done < <({ find .claude tools -name '*.sh'; printf '%s\n' "$fuzz_sh"; } | sort)
 
 echo "== 3. Self-tests =="
 if python3 .claude/skills/finding-to-vendor-report/scripts/cvss.py --selftest >/dev/null 2>&1; then ok "cvss.py --selftest"; else bad "cvss.py --selftest"; fi

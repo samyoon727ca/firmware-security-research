@@ -16,7 +16,10 @@ the target, and CI replays a committed seed through it. It does no fuzzing campa
 > the build tree are git-ignored (`.gitignore`). Never commit them, never paste a crashing
 > input or its stack into an issue, PR or commit message, and record hashes and provenance in
 > the paperwork, never the bytes. No U-Boot sources or binaries are committed either; they
-> are rebuilt from `pin.txt`.
+> are rebuilt from `pin.txt`. `ci-replay.sh` keeps the full libFuzzer/ASan log in `results/`
+> and prints it only outside CI: under CI (`$CI` or `$GITHUB_ACTIONS` set) it prints the seed
+> and run counts, or on failure only the fuzz-test name and exit code, and the workflow never
+> uploads `results/`.
 
 ## Files
 

@@ -44,5 +44,6 @@ jobs:
           clang --version | head -n 1
           make --version | head -n 1
 
+      # results/ (replay logs, crash artefacts) is never uploaded or printed here.
       - name: Build and replay the seeds
         run: bash fuzz/uboot-fit/ci-replay.sh
