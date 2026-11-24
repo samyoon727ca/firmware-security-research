@@ -28,7 +28,7 @@ done < <(find .claude tools -name '*.py' | sort)
 echo "== 2. Shell syntax =="
 while IFS= read -r f; do
   if bash -n "$f" 2>/dev/null; then ok "$f"; else bad "bash -n $f"; fi
-done < <(find .claude tools -name '*.sh' | sort)
+done < <(find .claude tools fuzz -name '*.sh' | sort)
 
 echo "== 3. Self-tests =="
 if python3 .claude/skills/finding-to-vendor-report/scripts/cvss.py --selftest >/dev/null 2>&1; then ok "cvss.py --selftest"; else bad "cvss.py --selftest"; fi

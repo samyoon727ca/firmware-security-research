@@ -29,12 +29,13 @@ while (( $# )); do
     *)              die "unknown argument: $1 (see --help)" ;;
   esac
 done
-mkdir -p "$OUT"
-OUT=$(cd "$OUT" && pwd)
-
 if (( BUILD )); then
+  # build.sh refuses an --out it did not create, and marks the one it uses.
   bash "$HERE/build.sh" "${BUILD_ARGS[@]}" --out "$OUT"
 fi
+# <out>/replay is deleted and recreated below: only touch a build.sh output.
+[[ -f $OUT/.uboot-fit-build ]] || die "$OUT is not a build.sh output (no .uboot-fit-build marker)"
+OUT=$(cd "$OUT" && pwd)
 B=$OUT/sandbox
 [[ -x $B/u-boot ]] || die "no fuzz binary at $B/u-boot (run build.sh)"
 

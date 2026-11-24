@@ -7,7 +7,9 @@
 #   --version-file  U-Boot pin: version, url, sha256, optional mirrors and
 #                   source_date_epoch (default: pin.txt next to this script)
 #   --out           output directory, git-ignored (default: build/ next to
-#                   this script)
+#                   this script). Must be new, empty, or an earlier build.sh
+#                   output (it holds a .uboot-fit-build marker), because the
+#                   script deletes and recreates its src/ and sandbox/.
 #
 # Steps: download the pinned tarball and refuse it unless its SHA-256 matches;
 # unpack it into <out>/src; copy fit_fuzz.c into the tree's test/fuzz/; build
@@ -34,8 +36,18 @@ while (( $# )); do
   esac
 done
 [[ -f $PIN ]] || die "no pin file: $PIN"
+# The script deletes and recreates <out>/src and <out>/sandbox, so it only
+# writes into a directory that is new, empty, or one it made itself (marked).
+MARKER=.uboot-fit-build
+if [[ -e $OUT ]]; then
+  [[ -d $OUT ]] || die "--out is not a directory: $OUT"
+  if [[ ! -f $OUT/$MARKER && -n $(ls -A "$OUT") ]]; then
+    die "--out $OUT is not empty and has no $MARKER marker; refusing to delete anything in it"
+  fi
+fi
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
+echo "build tree of fuzz/uboot-fit/build.sh; its src/, sandbox/ and replay/ are rebuilt on each run" > "$OUT/$MARKER"
 
 for tool in curl sha256sum tar bzip2 make "$CC"; do
   command -v "$tool" >/dev/null || die "missing tool: $tool"

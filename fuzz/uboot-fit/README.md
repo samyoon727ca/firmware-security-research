@@ -69,5 +69,18 @@ UBOOT_SB_FUZZ_TEST=fuzz_fit_check_format ./u-boot -runs=0 "$PWD/../replay"
   the input's end is reported even when it stays inside the buffer.
 - Inputs under one FDT header (40 bytes) are skipped: `fdt_check_header()` reads a whole header
   before it checks the size, because every real caller has that much memory behind the pointer.
+- **`--out` safety.** `build.sh` deletes and recreates `<out>/src` and `<out>/sandbox`, and
+  `ci-replay.sh` recreates `<out>/replay`, so both refuse an `--out` that is not new, empty, or
+  marked with the `.uboot-fit-build` file `build.sh` writes there.
+- **Older releases (v2021.01, for the CVE-2021-27138 oracle task).** The pin is overridable, but
+  this build path does not carry over as is: trees from before roughly 2022 have no
+  `test/fuzz/` `FUZZ_TEST` mechanism (`build.sh` stops with a clear error), and their
+  `fit_check_format()` takes no size argument, so `fit_fuzz.c` does not compile there. That task
+  needs its own entry point (a standalone `LLVMFuzzerTestOneInput`) or a backport of the fuzz
+  mechanism.
+- **Pin cross-check pending.** `pin.txt` is meant to match `cc/uboot/pin.txt` in
+  `uas-sec-p2-verified-boot`. The SHA-256 was checked against the tarball the release mirrors
+  serve, but not yet diffed against P2's file; someone with access to P2 should compare the
+  `url` and `sha256` lines.
 - Every crash is a **candidate**, not a finding: minimize, root-cause in source, and run the
   dedup gate before any claim of novelty.

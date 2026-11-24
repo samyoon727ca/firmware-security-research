@@ -2,6 +2,8 @@
 # tarball and refuses it unless the SHA-256 matches. These values are the same
 # as cc/uboot/pin.txt in samyoon727ca/uas-sec-p2-verified-boot, so the fuzzer
 # exercises the exact FIT parser P2's boot loader ships.
+# NOTE: not yet diffed against P2's file (no access when written); the SHA-256
+# was taken from the official tarball. Check it against P2's pin.
 # To build another release, pass a different file: build.sh --version-file <f>.
 version: 2026.07
 url: https://ftp.denx.de/pub/u-boot/u-boot-2026.07.tar.bz2
