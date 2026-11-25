@@ -397,3 +397,35 @@ static int fuzz_fit_oracle_hook_check(const uint8_t *data, size_t size)
 	return 0;
 }
 FUZZ_TEST(fuzz_fit_oracle_hook_check, 0);
+
+/*
+ * Verdict for confirm.sh, not a fuzz target: the fuzz target's path on one
+ * input plus a line saying how far it got. confirm.sh runs it only on the
+ * real-crypto build, so "verified" means fit_config_verify() with real RSA.
+ */
+static int fuzz_fit_confirm(const uint8_t *data, size_t size)
+{
+	const u8 *want = fit_fuzz_signed_digest();
+	const char *step = "fit_check_format()";
+	int ret;
+
+	if (!fit_fuzz_load(data, size)) {
+		printf("\nfit_fuzz: confirm: rejected by the size check (%zu bytes)\n", size);
+		return 0;
+	}
+	ret = fit_check_format(fit_fuzz_buf, size);
+	if (!ret) {
+		step = "fit_config_verify()";
+		ret = fit_fuzz_config_verify(fit_fuzz_buf);
+	}
+	if (ret) {
+		printf("\nfit_fuzz: confirm: rejected by %s (%d)\n", step, ret);
+		return 0;
+	}
+	ret = fit_fuzz_oracle(fit_fuzz_buf, want);
+	printf("\nfit_fuzz: confirm: verified by fit_config_verify(); bootm %s\n",
+	       ret ? "would not load the kernel" : "loads the signed kernel");
+
+	return 0;
+}
+FUZZ_TEST(fuzz_fit_confirm, 0);
