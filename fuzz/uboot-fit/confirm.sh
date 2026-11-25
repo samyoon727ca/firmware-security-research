@@ -39,6 +39,7 @@ have=$(head -n 1 "$B/toolchain.txt")
 [[ $have == "$want" ]] || die "$B/u-boot was built from '$have', not '$want' ($PIN)"
 marks=$(stub_marks "$B/u-boot")
 (( marks == 0 )) || die "$B/u-boot carries $marks crypto-stub mark(s): not a real-crypto build, refusing"
+grep -qE '[[:space:]]fuzz_fit_confirm$' < <(nm "$B/u-boot") || die "$B/u-boot lacks fuzz_fit_confirm; rebuild with build.sh"
 cp "$HERE"/replay/{control-dev.dtb,p2-signed.kernel.sha256} "$B/"
 
 mkdir -p "$RES"

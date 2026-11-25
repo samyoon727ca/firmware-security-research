@@ -30,8 +30,8 @@
 # signed kernel through bootm's lookup and stays quiet. Last,
 # fuzz_fit_oracle_hook_check runs the oracle with its expected digest swapped
 # (a test-only hook): it must fire, i.e. abort with the UBOOT_FIT_ORACLE marker.
-# The stub build then replays the seeds through the target and the signed seed
-# check; confirm.sh must call the signed seed verified, minimal.itb rejected.
+# The stub build then replays the seeds and the signed seed check (a flipped signature
+# byte must pass); confirm.sh must call the signed seed verified, minimal.itb rejected.
 #
 # The full libFuzzer/ASan log goes to <out>/results/ and is printed only
 # outside CI ($CI / $GITHUB_ACTIONS unset). Under CI the job prints the seed and
@@ -169,6 +169,8 @@ ok=$(grep -c '^fit_fuzz: [0-9]*-byte signed seed verifies; kernel tampering reje
 (( ok >= ${#signed[@]} )) || die "fuzz_fit_config_verify_check: only $ok of ${#signed[@]} signed seed(s) reported a pass"
 ok=$(grep -c '^fit_fuzz: oracle: bootm loads the signed kernel; quiet on the seed' "$log" || true)
 (( ok >= ${#signed[@]} )) || die "fuzz_fit_config_verify_check: the oracle passed on only $ok of ${#signed[@]} signed seed(s)"
+(( $(grep -c '^fit_fuzz: signature byte flipped: rejected' "$log" || true) >= ${#signed[@]} )) \
+  || die "fuzz_fit_config_verify_check: real crypto accepted a flipped signature byte"
 echo "${#signed[@]} signed seed(s) verify against control-dev.dtb; tampered copies rejected; oracle quiet"
 
 # The oracle test hook must fire: the run aborts at the oracle, with the marker,
@@ -185,14 +187,15 @@ grep -q '^fit_fuzz: oracle test hook: expected digest swapped' "$log" \
   || die "$name: exit $rc, but not at the oracle; full log kept locally in results/ (not printed under CI)"
 echo "oracle test hook: the oracle fires when the expected digest is swapped (exit $rc, as intended)"
 
-# The crypto-stub build: no crash on any seed; the signed seed verifies under
-# the stub (p2-signed.regions.sha256 is its digest) and its tampered copies do not.
+# The crypto-stub build: no crash on any seed. The signed seed check passes under the stub (its
+# digest: p2-signed.regions.sha256) and, after all its checks, accepts a flipped signature byte.
 B=$OUT/stub-sandbox L=stub-
 replay fuzz_fit_check_format "$R" ${#seeds[@]}
 replay fuzz_fit_config_verify_check "$S" ${#signed[@]}
-grep -q '^fit_fuzz: [0-9]*-byte signed seed verifies; kernel tampering rejected' \
-  "$OUT/results/stub-fuzz_fit_config_verify_check.log" || die "stub build: the signed seed check did not pass"
-echo "stub build: ${#seeds[@]} seed(s) replayed, no crash; signed seed verifies, tampered copies rejected"
+log=$OUT/results/stub-fuzz_fit_config_verify_check.log
+(( $(grep -c '^fit_fuzz: signature byte flipped: accepted' "$log" || true) >= ${#signed[@]} )) \
+  || die "stub build: a flipped signature byte was rejected, so the RSA stub is not in effect"
+echo "stub build: ${#seeds[@]} seed(s) replayed, no crash; signed seed verifies, tampered copies rejected, flipped signature byte accepted"
 
 # confirm.sh on the real-crypto build: the signed seed verifies, minimal.itb
 # (no signature for the required key) is rejected.

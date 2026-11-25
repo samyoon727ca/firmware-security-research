@@ -8,13 +8,12 @@
 #   --seconds  fuzzing time per variant (default 60)
 #
 # libFuzzer fork mode, -ignore_crashes=1: fresh corpus/bench-<variant>/; log and
-# crash artefacts in results/bench-<variant>* (candidates: keep local). exec/s is
-# runs / seconds from the last status line. Stop rule: see README.md.
+# crash artefacts in <out>/results/bench-<variant>* (candidates: keep local). exec/s
+# is runs / seconds from the last status line. Stop rule: see README.md.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=$HERE/build
 SECS=60
-RES=$HERE/results
 . "$HERE/stub.sh"
 
 die() { echo "bench.sh: $*" >&2; exit 1; }
@@ -29,7 +28,7 @@ while (( $# )); do
 done
 [[ -z ${CI:-} && -z ${GITHUB_ACTIONS:-} ]] || die "local only: CI replays the seeds and never fuzzes"
 [[ $SECS =~ ^[1-9][0-9]{0,4}$ ]] || die "--seconds must be a whole number from 1 to 99999"
-OUT=$(cd "$OUT" && pwd)
+OUT=$(cd "$OUT" && pwd) RES=$OUT/results
 [[ -f $OUT/replay/minimal.itb ]] || die "no compiled seeds in $OUT/replay (run ci-replay.sh)"
 pin() { awk -v k="$1:" '$1 == k {print $2}' "$HERE/pin.txt"; }
 pinned="u-boot $(pin version) sha256 $(pin sha256)"
@@ -41,27 +40,24 @@ mkdir -p "$RES"
 echo "host: $(uname -srm), $(nproc) CPU(s); $(sed -n 3p "$OUT/sandbox/toolchain.txt")"
 
 status='^#([0-9]+): .* oom/timeout/crash: [0-9]+/[0-9]+/([0-9]+) time: ([0-9]+)s'
-stub_eps=
 for v in real stub; do
   B=$OUT/sandbox want=0
   if [[ $v == stub ]]; then B=$OUT/stub-sandbox want=2; fi
   marks=$(stub_marks "$B/u-boot")
   (( marks == want )) || die "$B/u-boot carries $marks crypto-stub mark(s), want $want for the $v variant"
   cp "$HERE"/replay/{control-dev.dtb,p2-signed.kernel.sha256} "$B/"
-  C=$HERE/corpus/bench-$v log=$RES/bench-$v.log
+  C=$HERE/corpus/bench-$v log=$RES/bench-$v.log rc=0
   rm -rf "$C" && mkdir -p "$C"
   echo "fuzzing the $v variant ($B/u-boot) for ${SECS}s ..."
   ( cd "$B" && UBOOT_SB_FUZZ_TEST=fuzz_fit_check_format \
       ASAN_OPTIONS=${ASAN_OPTIONS:-abort_on_error=1:detect_leaks=0} \
       ./u-boot -fork=1 -ignore_crashes=1 -max_total_time="$SECS" -detect_leaks=0 \
-        -artifact_prefix="$RES/bench-$v-" "$C" "$OUT/replay" ) > "$log" 2>&1 \
-    || die "the $v run failed; see $log"
+        -artifact_prefix="$RES/bench-$v-" "$C" "$OUT/replay" ) > "$log" 2>&1 || rc=$?
+  # Fork mode exits with its last job's code, even a kept crash's: fail only if unfinished.
+  grep -q '^INFO: exiting: ' "$log" || die "the $v run did not finish (exit $rc); see $log"
   [[ $(grep -E "$status" "$log" | tail -n 1) =~ $status ]] && (( BASH_REMATCH[3] > 0 )) \
     || die "no libFuzzer status line in $log"
   eps=$(( BASH_REMATCH[1] / BASH_REMATCH[3] ))
-  echo "$v: $eps exec/s (${BASH_REMATCH[1]} runs in ${BASH_REMATCH[3]}s; crashes kept in results/: ${BASH_REMATCH[2]}; log $log)"
-  if [[ $v == stub ]]; then stub_eps=$eps; fi
+  echo "$v: $eps exec/s (${BASH_REMATCH[1]} runs in ${BASH_REMATCH[3]}s; crashes kept in results/: ${BASH_REMATCH[2]}; exit $rc; log $log)"
 done
-if (( stub_eps < 100 )); then
-  echo "STOP RULE: the stub variant ran under ~100 exec/s; stop and report, do not start a campaign"
-fi
+(( eps >= 100 )) || echo "STOP RULE: the stub variant (run last) ran under ~100 exec/s; stop and report, do not start a campaign"
