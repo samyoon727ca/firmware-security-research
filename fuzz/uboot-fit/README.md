@@ -7,7 +7,8 @@ the first code to touch a loaded FIT, **before** the signature check (P2 SR-005.
 byte it reads is attacker-chosen. When the format check passes, the target runs
 `fit_config_verify()` on the default configuration against a control devicetree holding a
 `required = "conf"` key, as P2's boot loader does: config lookup, `hashed-nodes`, region
-building, then the RSA check.
+building, then the RSA check. When that passes, a **verified-equals-booted oracle** checks that
+the kernel bootm would boot is the one the key signed (see [The oracle](#the-verified-equals-booted-oracle)).
 
 Phase 0 is the kill switch: it shows that the sandbox builds with clang + libFuzzer and links
 the target, and CI replays a committed seed through it. It does no fuzzing campaign.
@@ -31,10 +32,10 @@ the target, and CI replays a committed seed through it. It does no fuzzing campa
 | `pin.txt` | U-Boot release: version, tarball URL + mirrors, SHA-256, `SOURCE_DATE_EPOCH` |
 | `build.sh` | download → SHA-256 check (fails closed) → unpack into `build/` → patch the target in → build |
 | `fuzz.config` | Kconfig fragment over `sandbox_defconfig`: `CONFIG_FUZZ` (libFuzzer + ASan), `FIT`, `FIT_SIGNATURE`, `FIT_FULL_CHECK`, no legacy images (as P2's `p2.config`) |
-| `fit_fuzz.c` | the target, `FUZZ_TEST(fuzz_fit_check_format)`, plus the replay-only seed checks `fuzz_fit_check_format_accept` and `fuzz_fit_config_verify_check`; copied into the tree's `test/fuzz/` at build time |
+| `fit_fuzz.c` | the target, `FUZZ_TEST(fuzz_fit_check_format)`, plus the replay-only seed checks `fuzz_fit_check_format_accept`, `fuzz_fit_config_verify_check` and the oracle test hook `fuzz_fit_oracle_hook_check`; copied into the tree's `test/fuzz/` at build time |
 | `seeds/cc.its` | P2's FIT source (`cc/fit/cc.its` in `uas-sec-p2-verified-boot`, provenance in the file): kernel + fdt + ramdisk, sha256 hashes, one config signed with `sign-images` |
 | `make_seed.sh` | signs `seeds/cc.its` over dummy payloads with a dev-only key and the tree's own `mkimage`; writes the three `replay/` files below |
-| `replay/` | committed seeds, each a FIT `fit_check_format()` accepts. `minimal.its` is compiled with the tree's own `mkimage`; `p2-signed.fit` is the signed seed, `control-dev.dtb` the control DTB with its public key (`required = "conf"`), `p2-signed.kernel.sha256` the SHA-256 of its kernel payload |
+| `replay/` | committed seeds, each a FIT `fit_check_format()` accepts. `minimal.its` is compiled with the tree's own `mkimage`; `p2-signed.fit` is the signed seed, `control-dev.dtb` the control DTB with its public key (`required = "conf"`), `p2-signed.kernel.sha256` the SHA-256 of its kernel payload (the oracle's expected digest) |
 | `ci-replay.sh` | build, then replay `replay/` with `-runs=0` (never mutates); used by `.github/workflows/uboot-fit.yml` |
 
 ## Build
@@ -71,20 +72,66 @@ which aborts unless each one passes `fit_config_verify()` against `control-dev.d
 kernel passes `fit_image_verify()`, and unless both tampered copies are rejected: one kernel
 payload byte flipped (caught by the kernel's hash check; the config signature leaves out
 `data` and covers the hash value instead, and the check asserts that too) and one byte of the
-kernel's hash value flipped (caught by `fit_config_verify()`). Either way the
-binary must come from the `--version-file` pin: `ci-replay.sh` compares its version and SHA-256
+kernel's hash value flipped (caught by `fit_config_verify()`). It also runs the oracle: on the
+seed, bootm's lookup must load the signed kernel and the oracle must stay quiet; on the flipped
+payload byte, bootm's lookup must refuse the kernel (counted, not reported). A fourth run,
+`fuzz_fit_oracle_hook_check`, must **fail**: it aborts at the oracle with the marker line (see
+below). Either way the binary must come from the `--version-file` pin: `ci-replay.sh` compares its version and SHA-256
 with `build/sandbox/toolchain.txt`, so `--no-build` cannot replay a build of another release.
 
-To run one input by hand: the sandbox finds `test.dtb`, and the target `control-dev.dtb`,
-relative to the working directory, so run from the build directory and pass absolute paths
-(`ci-replay.sh` copies `control-dev.dtb` there, and `build/replay/` holds the compiled seeds once
-it has run). The target aborts if `control-dev.dtb` is missing: the sandbox's own control DTB
-has no key, and `fit_config_verify()` accepts any FIT against it.
+To run one input by hand: the sandbox finds `test.dtb`, and the target `control-dev.dtb` and
+`p2-signed.kernel.sha256`, relative to the working directory, so run from the build directory
+and pass absolute paths (`ci-replay.sh` copies both files there, and `build/replay/` holds the
+compiled seeds once it has run). The target aborts if either file is missing: the sandbox's own
+control DTB has no key, and `fit_config_verify()` accepts any FIT against it; without the digest
+the oracle has nothing to compare.
 
 ```bash
 cd fuzz/uboot-fit/build/sandbox
 UBOOT_SB_FUZZ_TEST=fuzz_fit_check_format ./u-boot -runs=0 "$PWD/../replay"
 ```
+
+## The verified-equals-booted oracle
+
+A sanitizer sees memory errors, not a verification bypass: the class of CVE-2021-27097 and
+CVE-2021-27138, where a FIT passes `fit_config_verify()` but bootm loads bytes that were never
+signed. The oracle in `fit_fuzz.c` asserts the property directly. For every input that passes
+`fit_check_format()` and `fit_config_verify()` on the default configuration, and only then, it:
+
+1. looks the kernel up **the way bootm does**: the same `fit_image_load()` call as
+   `boot_get_kernel()` in `boot/bootm.c` (default configuration, `IH_ARCH_DEFAULT`,
+   `IH_TYPE_KERNEL`, `FIT_LOAD_IGNORED`, `images.verify` on) on the same buffer, with
+   `control-dev.dtb` as the key blob. So bootm's own config and image hash checks run too;
+2. hashes the bytes it returns, the `os_data`/`os_len` bootm would boot, with SHA-256;
+3. compares that with `p2-signed.kernel.sha256`, the kernel the dev key signed. Only that key
+   can make a FIT verify, and it signed nothing else. On a mismatch it prints the one-line marker
+   `UBOOT_FIT_ORACLE: verified!=booted` and aborts, so libFuzzer saves the input as a crash.
+
+**Verified but not booted is not a bypass.** If `fit_image_load()` fails after
+`fit_config_verify()` passed (e.g. the kernel's data no longer matches its hash, or its type is
+wrong), bootm boots nothing. The target counts it, prints `fit_fuzz: oracle: verified, but bootm
+would not load the kernel (<err>); not a bypass, <n> so far` and goes on.
+
+**Test hook.** `fuzz_fit_oracle_hook_check` runs the same path on the signed seed with one bit
+of the expected digest flipped, so the oracle must fire on 2026.07 without any bypass input. The
+swapped digest exists only in that function, which runs only when named
+(`UBOOT_SB_FUZZ_TEST=fuzz_fit_oracle_hook_check`); the fuzz target always uses the digest file.
+It prints `fit_fuzz: oracle test hook: …` before the marker, and `ci-replay.sh` saves its
+artefact as `results/oracle-hook-crash-*`.
+
+**Reading a hit.** Only a crash whose log has the `UBOOT_FIT_ORACLE: verified!=booted` line is an
+oracle hit; any other abort is an ordinary crash candidate. Re-run the saved input by hand
+(above) with `fuzz_fit_check_format`: `fit_image_load()`'s trace above the marker names the
+configuration and kernel node bootm used, and `fit_config_verify()`'s names the key. Rule out
+the harness first (if the committed seed fires too, the digest file is stale, not the parser),
+then minimise, root-cause it in source, and run the dedup gate before any claim.
+
+> **A hit on 2026.07 is unreported by definition.** It stays in git-ignored paths (`results/`,
+> the corpus, the build tree) and goes nowhere else: no issue, CI log, commit message or PR
+> text, and not its input bytes, stack or digest, as
+> [`../../docs/disclosure-policy.md`](../../docs/disclosure-policy.md) and the embargo guard
+> (`tools/embargo-guard.sh`) require. The CI job never fuzzes, prints no replay log and uploads
+> no `results/`.
 
 ## Regenerating the signed seed
 

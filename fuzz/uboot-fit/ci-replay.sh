@@ -15,14 +15,19 @@
 # Seeds come from replay/: each *.its is compiled to a FIT with the tree's own
 # mkimage (and must list cleanly with mkimage -l, so the seed is known to be a
 # valid FIT); each *.fit is a signed seed from make_seed.sh, replayed as is.
-# control-dev.dtb is the control devicetree holding the dev key: it is copied
-# into the run directory, where the target reads it, and is not a seed; nor is
-# *.sha256 or *.md. Every seed must be a FIT that fit_check_format() accepts:
-# after the fuzz target itself, the seeds are replayed through
-# fuzz_fit_check_format_accept, which aborts on a rejected input, so a seed
-# that only reaches the first error branch fails. The signed seeds then go
-# through fuzz_fit_config_verify_check, which aborts unless each one verifies
-# against control-dev.dtb and the same FIT with a kernel byte flipped does not.
+# control-dev.dtb is the control devicetree holding the dev key, and
+# p2-signed.kernel.sha256 the digest of the kernel it signed: both are copied
+# into the run directory, where the target reads them, and are not seeds; nor
+# is any other *.sha256 or *.md. Every seed must be a FIT that
+# fit_check_format() accepts: after the fuzz target itself, the seeds are
+# replayed through fuzz_fit_check_format_accept, which aborts on a rejected
+# input, so a seed that only reaches the first error branch fails. The signed
+# seeds then go through fuzz_fit_config_verify_check, which aborts unless each
+# one verifies against control-dev.dtb and the same FIT with a kernel byte
+# flipped does not, and unless the verified-equals-booted oracle loads the
+# signed kernel through bootm's lookup and stays quiet. Last,
+# fuzz_fit_oracle_hook_check runs the oracle with its expected digest swapped
+# (a test-only hook): it must fire, i.e. abort with the UBOOT_FIT_ORACLE marker.
 #
 # The full libFuzzer/ASan log goes to <out>/results/ and is printed only
 # outside CI ($CI / $GITHUB_ACTIONS unset). Under CI the job prints the seed and
@@ -71,6 +76,8 @@ S=$OUT/signed
 rm -rf "$R" "$S" && mkdir -p "$R" "$S"
 [[ -f $HERE/replay/control-dev.dtb ]] || die "no replay/control-dev.dtb (run make_seed.sh)"
 cp "$HERE/replay/control-dev.dtb" "$B/control-dev.dtb"
+[[ -f $HERE/replay/p2-signed.kernel.sha256 ]] || die "no replay/p2-signed.kernel.sha256 (run make_seed.sh)"
+cp "$HERE/replay/p2-signed.kernel.sha256" "$B/p2-signed.kernel.sha256"
 epoch=$(sed -n 's/^source_date_epoch //p' "$B/toolchain.txt")
 shopt -s nullglob
 for f in "$HERE"/replay/*; do
@@ -99,17 +106,27 @@ signed=("$S"/*)
 # the fuzzing-engine device) relative to the working directory, hence the cd.
 # Logs and artefacts from a failing seed go to <out>/results/, which stays local.
 mkdir -p "$OUT/results"
-replay() { # fuzz test, seed dir, seed count: run every seed through it once, with -runs=0
-  local name=$1 dir=$2 n=$3 log=$OUT/results/$1.log rc runs
+run() { # fuzz test, seed dir, artefact name prefix: run every seed through it once, with -runs=0
+  local log=$OUT/results/$1.log rc
+  # -detect_leaks=0: LeakSanitizer is off here (ASAN_OPTIONS), so libFuzzer's
+  # own leak check cannot report anything. It would only run an input a second
+  # time when that input allocated more than it freed, as the first one through
+  # the oracle does (sandbox address-map tags, made once per pointer), and the
+  # run count below would read that second run as a mutation.
   set +e
-  ( cd "$B" && UBOOT_SB_FUZZ_TEST=$name \
+  ( cd "$B" && UBOOT_SB_FUZZ_TEST=$1 \
       ASAN_OPTIONS=${ASAN_OPTIONS:-abort_on_error=1:detect_leaks=0} \
-      ./u-boot -runs=0 -artifact_prefix="$OUT/results/" "$dir" ) > "$log" 2>&1
+      ./u-boot -runs=0 -detect_leaks=0 -artifact_prefix="$OUT/results/$3" "$2" ) > "$log" 2>&1
   rc=$?
   set -e
   # The log can hold a sanitizer stack trace and the Base64 of a crashing
   # input, so under CI it stays in results/ and only counts are printed.
   if ! in_ci; then cat "$log"; fi
+  return "$rc"
+}
+replay() { # fuzz test, seed dir, seed count: run every seed through it once; none may fail
+  local name=$1 dir=$2 n=$3 log=$OUT/results/$1.log rc=0 runs
+  run "$name" "$dir" "" || rc=$?
   if (( rc != 0 )); then
     if in_ci; then
       die "$name: replay failed (exit $rc); full log kept locally in results/ (not printed under CI)"
@@ -131,6 +148,23 @@ replay fuzz_fit_check_format_accept "$R" ${#seeds[@]}   # the seeds pass fit_che
 echo "replayed ${#seeds[@]} seed(s) through fuzz_fit_check_format: no crash, all accepted"
 # The signed seeds verify against control-dev.dtb; a flipped kernel byte is rejected.
 replay fuzz_fit_config_verify_check "$S" ${#signed[@]}
-ok=$(grep -c '^fit_fuzz: [0-9]*-byte signed seed verifies; kernel tampering rejected' "$OUT/results/fuzz_fit_config_verify_check.log" || true)
+log=$OUT/results/fuzz_fit_config_verify_check.log
+ok=$(grep -c '^fit_fuzz: [0-9]*-byte signed seed verifies; kernel tampering rejected' "$log" || true)
 (( ok >= ${#signed[@]} )) || die "fuzz_fit_config_verify_check: only $ok of ${#signed[@]} signed seed(s) reported a pass"
-echo "${#signed[@]} signed seed(s) verify against control-dev.dtb; tampered copies rejected"
+ok=$(grep -c '^fit_fuzz: oracle: bootm loads the signed kernel; quiet on the seed' "$log" || true)
+(( ok >= ${#signed[@]} )) || die "fuzz_fit_config_verify_check: the oracle passed on only $ok of ${#signed[@]} signed seed(s)"
+echo "${#signed[@]} signed seed(s) verify against control-dev.dtb; tampered copies rejected; oracle quiet"
+
+# The oracle test hook must fire: the run aborts at the oracle, with the marker,
+# on the first signed seed. Its artefact (a committed seed, not a finding) is
+# saved as results/oracle-hook-crash-*, apart from anything a campaign finds.
+name=fuzz_fit_oracle_hook_check
+log=$OUT/results/$name.log
+rc=0
+run "$name" "$S" oracle-hook- || rc=$?
+(( rc != 0 )) || die "$name: the oracle did not fire on the swapped digest"
+grep -q '^fit_fuzz: oracle test hook: expected digest swapped' "$log" \
+  && grep -q '^UBOOT_FIT_ORACLE: verified!=booted' "$log" \
+  && ! grep -q '^fit_fuzz: signed seed check failed' "$log" \
+  || die "$name: exit $rc, but not at the oracle; full log kept locally in results/ (not printed under CI)"
+echo "oracle test hook: the oracle fires when the expected digest is swapped (exit $rc, as intended)"
