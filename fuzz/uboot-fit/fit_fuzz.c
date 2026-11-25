@@ -357,14 +357,14 @@ static int fuzz_fit_config_verify_check(const uint8_t *data, size_t size)
 		fit_fuzz_fail("fit_config_verify() accepted a flipped hash value", 0);
 	fit_fuzz_buf[off] ^= 0x01;
 
-	/* One signature byte: ci-replay.sh wants real RSA to reject it, the crypto stub to accept it. */
+	/* One signature byte: real RSA must reject it, the stub accept it. A pass leaves a line open. */
 	ret = fdt_subnode_offset(fit_fuzz_buf, fit_conf_get_node(fit_fuzz_buf, NULL),
 				 FIT_SIG_NODENAME);
 	value = ret < 0 ? NULL : fdt_getprop(fit_fuzz_buf, ret, FIT_VALUE_PROP, &vlen);
 	if (!value || vlen <= 0)
 		fit_fuzz_fail("default configuration has no signature value", ret);
 	fit_fuzz_buf[value - fit_fuzz_buf + vlen / 2] ^= 0x01;
-	printf("fit_fuzz: signature byte flipped: %s by fit_config_verify()\n",
+	printf("\nfit_fuzz: signature byte flipped: %s by fit_config_verify()\n",
 	       fit_fuzz_config_verify(fit_fuzz_buf) ? "rejected" : "accepted");
 	printf("fit_fuzz: %zu-byte signed seed verifies; kernel tampering rejected\n",
 	       size);
