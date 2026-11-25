@@ -38,7 +38,7 @@ the target, and CI replays a committed seed through it. It does no fuzzing campa
 | `make_seed.sh` | signs `seeds/cc.its` over dummy payloads with a dev-only key and the tree's own `mkimage`; writes the four `replay/` files below |
 | `replay/` | committed seeds, each a FIT `fit_check_format()` accepts. `minimal.its` is compiled with the tree's own `mkimage`; `p2-signed.fit` is the signed seed, `control-dev.dtb` the control DTB with its public key (`required = "conf"`), `p2-signed.kernel.sha256` the SHA-256 of its kernel payload (the oracle's expected digest), `p2-signed.regions.sha256` the digest its signature covers (the only one the stub accepts) |
 | `ci-replay.sh` | build both variants, then replay `replay/` with `-runs=0` (never mutates) through each; used by `.github/workflows/uboot-fit.yml` |
-| `confirm.sh` | replays inputs on the **real-crypto** build only: crash / verified / rejected each, into `results/` |
+| `confirm.sh` | replays inputs on the **real-crypto** build only: crash / timeout / verified / rejected each, appended to `build/results/confirm.txt` |
 | `bench.sh` | **local only**, never in CI: fuzzes each variant for N seconds into `corpus/` and `results/`, prints exec/s |
 
 ## Build
@@ -79,10 +79,9 @@ kernel's hash value flipped (caught by `fit_config_verify()`). It also runs the 
 seed, bootm's lookup must load the signed kernel and the oracle must stay quiet; on the flipped
 payload byte, bootm's lookup must refuse the kernel (counted, not reported). A fourth run,
 `fuzz_fit_oracle_hook_check`, must **fail**: it aborts at the oracle with the marker line (see
-below). The crypto-stub build then replays the seeds through the target and
-`fuzz_fit_config_verify_check`, and `confirm.sh` must call the signed seed verified and
-`minimal.itb` rejected. Either way the binary must come from the `--version-file` pin: `ci-replay.sh` compares its version and SHA-256
+below). Either way the binary must come from the `--version-file` pin: `ci-replay.sh` compares its version and SHA-256
 with `build/sandbox/toolchain.txt`, so `--no-build` cannot replay a build of another release.
+The crypto-stub build replays the seeds too, and `confirm.sh` must call the signed seed verified, `minimal.itb` rejected.
 
 To run one input by hand: the sandbox finds `test.dtb`, and the target `control-dev.dtb` and
 `p2-signed.kernel.sha256`, relative to the working directory, so run from the build directory
@@ -140,36 +139,26 @@ then minimise, root-cause it in source, and run the dedup gate before any claim.
 
 ## Crypto-stub build (fuzzing only)
 
-Real RSA on every input that reaches it slows fuzzing, so an **opt-in** build stubs it for
-structure exploration, and every hit is confirmed on real crypto before it counts.
+Real RSA on every input slows fuzzing, so an **opt-in** build stubs it for structure
+exploration; a hit counts only once `confirm.sh` reproduces it on real crypto.
 
 ```bash
 fuzz/uboot-fit/build.sh --crypto-stub      # -> build/stub-sandbox/u-boot, source in build/stub-src/
-fuzz/uboot-fit/confirm.sh <input>...       # replays on build/sandbox/u-boot (real crypto) only
-fuzz/uboot-fit/bench.sh [--seconds 60]     # LOCAL ONLY: exec/s of each variant
+fuzz/uboot-fit/confirm.sh <input>...       # real crypto only: crash / timeout / verified / rejected
+fuzz/uboot-fit/bench.sh [--seconds 60]     # LOCAL ONLY (refuses under CI): exec/s of each variant
 ```
 
-- **Rule.** `crypto-stub.patch` changes `rsa_verify_key()` only: after the key lookup and the
-  signature-length check it skips the RSA maths, and accepts only if the SHA-256 of the signed
-  regions equals `replay/p2-signed.regions.sha256` (compiled in), the digest the committed
-  seed's signature covers (`make_seed.sh` recovers it with the public key). Real RSA accepts that digest only, so
-  the stub differs only in ignoring the signature bytes: the fuzzer must still keep the hashed
-  nodes and hash values to get past it.
-- **Separation.** The stub has its own `stub-src/` and `stub-sandbox/`; the patch never touches
-  `src/`, and its code compiles only under `-DFUZZ_CRYPTO_STUB`. A stub binary prints
-  `*** UBOOT_FIT_CRYPTO_STUB: RSA verification is STUBBED in this binary ***` at startup and
-  defines `fuzz_crypto_stub_verify` (`stub.sh`). `build.sh` fails unless the stub build has both
-  marks and the default build neither; `ci-replay.sh` checks both binaries again and fails if
-  the banner appears in a real-crypto replay log; `confirm.sh` refuses a binary with either mark.
-- **`confirm.sh`** prints the binary's path, pin and SHA-256, then runs each input alone through
-  `fuzz_fit_confirm` (the fuzz target's path plus a verdict line): `crash` (naming the oracle
-  marker if it fired), `verified` (`fit_config_verify()` passed with real RSA) or `rejected`.
-  Verdicts go to `results/confirm.txt`, logs to `results/confirm-<sha256>.log`; both stay local.
-- **`bench.sh`** refuses to run under `$CI`/`$GITHUB_ACTIONS`: CI replays, never fuzzes. It fuzzes
-  each variant for N seconds (default 60; libFuzzer fork mode, one worker, `-ignore_crashes=1`)
-  from the seeds into a fresh `corpus/bench-<variant>/`, logs to `results/`, and prints runs per
-  second. A performance number, not a finding. Measured 2026-11-25, `bench.sh` defaults, on an
-  Apple M2 Pro host: Colima VM (aarch64, Linux 6.8, 4 vCPUs), Ubuntu 24.04 container, clang 18.1.3:
+`crypto-stub.patch` (in `stub-src/` only, compiled only under `-DFUZZ_CRYPTO_STUB`) makes
+`rsa_verify_key()` skip the RSA maths and accept only if the SHA-256 of the signed regions equals
+`replay/p2-signed.regions.sha256`, the digest the committed seed's signature covers. It differs
+from real RSA only in ignoring the signature bytes: the fuzzer must keep the hashed nodes and values.
+A stub binary prints `*** UBOOT_FIT_CRYPTO_STUB … ***` at startup and defines
+`fuzz_crypto_stub_verify` (`stub.sh`). `build.sh` and `ci-replay.sh` fail unless the stub build
+has both marks and the real build neither; `confirm.sh` refuses a binary with either, names the
+one it ran and appends its verdicts to `build/results/confirm.txt`.
+
+Measured exec/s, a performance number and not a finding (2026-11-25, `bench.sh` defaults, Apple
+M2 Pro host: Colima VM (aarch64, Linux 6.8, 4 vCPUs), Ubuntu 24.04 container, clang 18.1.3):
 
 | Variant | exec/s |
 |---------|-------:|
@@ -205,8 +194,7 @@ release key.
   the input's end is reported even when it stays inside the buffer.
 - Inputs under one FDT header (40 bytes) are skipped: `fdt_check_header()` reads a whole header
   before it checks the size, because every real caller has that much memory behind the pointer.
-- **`--out` safety.** `build.sh` deletes and recreates `<out>/src` and `<out>/sandbox` (with
-  `--crypto-stub`, `<out>/stub-src` and `<out>/stub-sandbox`), and
+- **`--out` safety.** `build.sh` deletes and recreates `<out>/src` and `<out>/sandbox` (`stub-*` with `--crypto-stub`), and
   `ci-replay.sh` recreates `<out>/replay` and `<out>/signed`, so both refuse an `--out` that is
   not new, empty, or marked with the `.uboot-fit-build` file `build.sh` writes there.
 - **Older releases (v2021.01, for the CVE-2021-27138 oracle task).** The pin is overridable, but

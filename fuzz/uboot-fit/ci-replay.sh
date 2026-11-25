@@ -9,10 +9,10 @@
 #   --version-file, --out  passed to build.sh (same defaults)
 #   --no-build             reuse existing <out>/sandbox and <out>/stub-sandbox
 #
-# Either way each binary must come from the --version-file pin: its version and
-# SHA-256 are checked against its toolchain.txt before any replay. The
-# real-crypto build must carry neither crypto-stub mark (stub.sh), in the binary
-# or a replay log; the stub build must carry both.
+# Either way the binary must come from the --version-file pin: its version and
+# SHA-256 are checked against <out>/sandbox/toolchain.txt before any replay.
+# <out>/stub-sandbox is held to the same pin. It must carry both crypto-stub
+# marks (stub.sh); the real-crypto build neither, in the binary or a replay log.
 #
 # Seeds come from replay/: each *.its is compiled to a FIT with the tree's own
 # mkimage (and must list cleanly with mkimage -l, so the seed is known to be a
@@ -65,23 +65,21 @@ fi
 # <out>/replay is deleted and recreated below: only touch a build.sh output.
 [[ -f $OUT/.uboot-fit-build ]] || die "$OUT is not a build.sh output (no .uboot-fit-build marker)"
 OUT=$(cd "$OUT" && pwd)
+B=$OUT/sandbox
+[[ -x $B/u-boot ]] || die "no fuzz binary at $B/u-boot (run build.sh)"
+# The binary must come from the pin this run names: with --no-build, <out> may
+# hold a build of another release. build.sh writes this line last.
+[[ -f $B/toolchain.txt ]] || die "no $B/toolchain.txt: the build is incomplete (run build.sh)"
 pin() { awk -v k="$1:" '$1 == k {print $2}' "$PIN"; }
 want="u-boot $(pin version) sha256 $(pin sha256)"
-for B in "$OUT/sandbox" "$OUT/stub-sandbox"; do
-  [[ -x $B/u-boot ]] || die "no fuzz binary at $B/u-boot (run build.sh, --crypto-stub for stub-sandbox)"
-  # The binary must come from the pin this run names: with --no-build, <out> may
-  # hold a build of another release. build.sh writes this line last.
-  [[ -f $B/toolchain.txt ]] || die "no $B/toolchain.txt: the build is incomplete (run build.sh)"
-  have=$(head -n 1 "$B/toolchain.txt")
-  [[ $have == "$want" ]] \
-    || die "$B/u-boot was built from '$have', not '$want' ($PIN); rebuild it (drop --no-build)"
-done
-marks=$(stub_marks "$OUT/sandbox/u-boot")
-(( marks == 0 )) || die "the real-crypto build $OUT/sandbox/u-boot carries $marks crypto-stub mark(s)"
-marks=$(stub_marks "$OUT/stub-sandbox/u-boot")
-(( marks == 2 )) || die "the stub build carries $marks of the 2 crypto-stub marks, so the check above proves nothing"
+have=$(head -n 1 "$B/toolchain.txt")
+[[ $have == "$want" ]] \
+  || die "$B/u-boot was built from '$have', not '$want' ($PIN); rebuild it (drop --no-build)"
+[[ -x $OUT/stub-sandbox/u-boot && $(head -n 1 "$OUT/stub-sandbox/toolchain.txt" 2>/dev/null) == "$want" ]] \
+  || die "no $OUT/stub-sandbox/u-boot built from '$want' ($PIN); run build.sh --crypto-stub"
+(( $(stub_marks "$B/u-boot") == 0 )) || die "the real-crypto build $B/u-boot carries a crypto-stub mark"
+(( $(stub_marks "$OUT/stub-sandbox/u-boot") == 2 )) || die "the stub build lacks a crypto-stub mark, so the check above proves nothing"
 echo "real-crypto build: no crypto-stub symbol or banner; stub build: both"
-B=$OUT/sandbox
 
 # --- Seeds ----------------------------------------------------------------------
 R=$OUT/replay
@@ -198,7 +196,8 @@ echo "stub build: ${#seeds[@]} seed(s) replayed, no crash; signed seed verifies,
 
 # confirm.sh on the real-crypto build: the signed seed verifies, minimal.itb
 # (no signature for the required key) is rejected.
-bash "$HERE/confirm.sh" --version-file "$PIN" --out "$OUT" "${signed[0]}" "$R/minimal.itb"
-mapfile -t verdicts < <(grep -E '^(crash|verified|rejected) ' "$HERE/results/confirm.txt")
+out=$(bash "$HERE/confirm.sh" --version-file "$PIN" --out "$OUT" "${signed[0]}" "$R/minimal.itb")
+echo "$out"  # this run's verdicts: <out>/results/confirm.txt also holds earlier runs'
+mapfile -t verdicts < <(grep -E '^(crash|timeout|verified|rejected) ' <<< "$out")
 [[ ${#verdicts[@]} == 2 && ${verdicts[0]} == "verified "* && ${verdicts[1]} == "rejected "* ]] \
   || die "confirm.sh did not report the signed seed verified and minimal.itb rejected"

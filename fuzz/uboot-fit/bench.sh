@@ -4,14 +4,11 @@
 # and print its exec/s. A performance number for the README, not a finding.
 #
 # Usage: bench.sh [--out build/] [--seconds 60]
-#
-#   --out      a build.sh output with sandbox/, stub-sandbox/ and the compiled
-#              seeds in replay/ (ci-replay.sh makes all three)
+#   --out      a ci-replay.sh output: both variants built from pin.txt, seeds in replay/
 #   --seconds  fuzzing time per variant (default 60)
 #
-# libFuzzer runs in fork mode with -ignore_crashes=1, so a crash does not end
-# the run; artefacts go to results/bench-<variant>-* (candidates: keep local).
-# Fresh corpus/bench-<variant>/, log results/bench-<variant>.log; exec/s is
+# libFuzzer fork mode, -ignore_crashes=1: fresh corpus/bench-<variant>/; log and
+# crash artefacts in results/bench-<variant>* (candidates: keep local). exec/s is
 # runs / seconds from the last status line. Stop rule: see README.md.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -34,6 +31,12 @@ done
 [[ $SECS =~ ^[1-9][0-9]{0,4}$ ]] || die "--seconds must be a whole number from 1 to 99999"
 OUT=$(cd "$OUT" && pwd)
 [[ -f $OUT/replay/minimal.itb ]] || die "no compiled seeds in $OUT/replay (run ci-replay.sh)"
+pin() { awk -v k="$1:" '$1 == k {print $2}' "$HERE/pin.txt"; }
+pinned="u-boot $(pin version) sha256 $(pin sha256)"
+for B in "$OUT/sandbox" "$OUT/stub-sandbox"; do  # both, before either runs
+  [[ -x $B/u-boot && $(head -n 1 "$B/toolchain.txt" 2>/dev/null) == "$pinned" ]] \
+    || die "no $B/u-boot built from '$pinned' (pin.txt; run ci-replay.sh, which builds both variants)"
+done
 mkdir -p "$RES"
 echo "host: $(uname -srm), $(nproc) CPU(s); $(sed -n 3p "$OUT/sandbox/toolchain.txt")"
 
@@ -42,7 +45,6 @@ stub_eps=
 for v in real stub; do
   B=$OUT/sandbox want=0
   if [[ $v == stub ]]; then B=$OUT/stub-sandbox want=2; fi
-  [[ -x $B/u-boot ]] || die "no $B/u-boot (run ci-replay.sh, which builds both variants)"
   marks=$(stub_marks "$B/u-boot")
   (( marks == want )) || die "$B/u-boot carries $marks crypto-stub mark(s), want $want for the $v variant"
   cp "$HERE"/replay/{control-dev.dtb,p2-signed.kernel.sha256} "$B/"
