@@ -1,0 +1,98 @@
+Glue for U-Boot v2021.01, which predates test/fuzz/, applied by build.sh with
+"patch -p1": FUZZ_TEST() and API shims so fit_fuzz.c builds unchanged, a
+"fuzz <test> <file>..." replay command, and the rsa3072 table entry upstream
+added later (the seed's dev key is RSA-3072). No FIT code under test changes.
+
+--- a/common/image-sig.c
++++ b/common/image-sig.c
+@@ -77,6 +77,13 @@
+ 		.verify = rsa_verify,
+ 	},
+ 	{
++		.name = "rsa3072",
++		.key_len = 3072 / 8,
++		.sign = rsa_sign,
++		.add_verify_data = rsa_add_verify_data,
++		.verify = rsa_verify,
++	},
++	{
+ 		.name = "rsa4096",
+ 		.key_len = RSA4096_BYTES,
+ 		.sign = rsa_sign,
+--- /dev/null
++++ b/include/test/fuzz.h
+@@ -0,0 +1,24 @@
++/* SPDX-License-Identifier: GPL-2.0+ */
++/* fuzz/uboot-fit glue: upstream's FUZZ_TEST() list, plus shims for fit_fuzz.c */
++#ifndef __TEST_FUZZ_H
++#define __TEST_FUZZ_H
++#include <linker_lists.h>
++#include <linux/errno.h>
++#include <linux/types.h>
++
++struct fuzz_test {
++	const char *name;
++	int (*func)(const uint8_t *data, size_t size);
++	int flags;
++};
++#define FUZZ_TEST(_name, _flags)					\
++	ll_entry_declare(struct fuzz_test, _name, fuzz_tests) = {	\
++		.name = #_name, .func = _name, .flags = _flags,		\
++	}
++
++/* Include after <image.h>. Here fit_check_format() returns 1 if OK, else 0. */
++#define fit_check_format(fit, size) (fit_check_format(fit) ? 0 : -ENOEXEC)
++#define IH_PHASE_NONE 0
++#define fit_conf_get_prop_node(fit, conf, prop, phase) \
++	fit_conf_get_prop_node(fit, conf, prop)
++#endif
+--- a/test/Makefile
++++ b/test/Makefile
+@@ -18,5 +18,6 @@
+ ifeq ($(CONFIG_SPL_BUILD),)
+ obj-$(CONFIG_UNIT_TEST) += lib/
+ obj-y += log/
++obj-$(CONFIG_SANDBOX) += fuzz/
+ obj-$(CONFIG_$(SPL_)UT_UNICODE) += unicode_ut.o
+ endif
+--- /dev/null
++++ b/test/fuzz/Makefile
+@@ -0,0 +1,2 @@
++obj-y += cmd_fuzz.o
++CFLAGS_fit_fuzz.o := -include common.h
+--- /dev/null
++++ b/test/fuzz/cmd_fuzz.c
+@@ -0,0 +1,33 @@
++// SPDX-License-Identifier: GPL-2.0+
++/* fuzz/uboot-fit glue: run host files once each through a FUZZ_TEST() */
++#include <common.h>
++#include <command.h>
++#include <image.h>
++#include <os.h>
++#include <test/fuzz.h>
++
++static int do_fuzz(struct cmd_tbl *cmdtp, int flag, int argc,
++		   char *const argv[])
++{
++	struct fuzz_test *t = ll_entry_start(struct fuzz_test, fuzz_tests);
++	struct fuzz_test *end = t + ll_entry_count(struct fuzz_test, fuzz_tests);
++	void *buf;
++	int i, size;
++
++	while (argc >= 3 && t < end && strcmp(t->name, argv[1]))
++		t++;
++	if (argc < 3 || t == end)
++		return CMD_RET_USAGE;
++	for (i = 2; i < argc; i++) {
++		if (os_read_file(argv[i], &buf, &size))
++			return CMD_RET_FAILURE;
++		t->func(buf, size);
++		os_free(buf);
++	}
++	printf("fuzz: %s: ran %d input(s)\n", t->name, argc - 2);
++
++	return CMD_RET_SUCCESS;
++}
++
++U_BOOT_CMD(fuzz, CONFIG_SYS_MAXARGS, 0, do_fuzz,
++	   "run host files once each through a fuzz test", "<test> <file>...");

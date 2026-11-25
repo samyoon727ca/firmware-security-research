@@ -4,8 +4,10 @@
 #
 # Usage: build.sh [--version-file pin.txt] [--out build/]
 #
-#   --version-file  U-Boot pin: version, url, sha256, optional mirrors and
-#                   source_date_epoch (default: pin.txt next to this script)
+#   --version-file  U-Boot pin: version, url, sha256, optional mirrors,
+#                   source_date_epoch, and a glue "patch" + "config" fragment
+#                   for trees without test/fuzz/ (pins/v2021.01.txt), both
+#                   next to the pin (default: pin.txt next to this script)
 #   --out           output directory, git-ignored (default: build/ next to
 #                   this script). Must be new, empty, or an earlier build.sh
 #                   output (it holds a .uboot-fit-build marker), because the
@@ -36,6 +38,7 @@ while (( $# )); do
   esac
 done
 [[ -f $PIN ]] || die "no pin file: $PIN"
+PIN_DIR=$(cd "$(dirname "$PIN")" && pwd)
 # The script deletes and recreates <out>/src and <out>/sandbox, so it only
 # writes into a directory that is new, empty, or one it made itself (marked).
 MARKER=.uboot-fit-build
@@ -49,7 +52,7 @@ mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
 echo "build tree of fuzz/uboot-fit/build.sh; its src/, sandbox/ and replay/ are rebuilt on each run" > "$OUT/$MARKER"
 
-for tool in curl sha256sum tar bzip2 make "$CC"; do
+for tool in curl sha256sum tar bzip2 make patch "$CC"; do
   command -v "$tool" >/dev/null || die "missing tool: $tool"
 done
 
@@ -62,6 +65,11 @@ SHA=$(pin sha256)
 [[ $SHA =~ ^[0-9a-f]{64}$ ]] || die "bad sha256 in $PIN: '$SHA'"
 mapfile -t URLS < <(pin url; pin mirror)
 (( ${#URLS[@]} )) || die "no url in $PIN"
+GLUE=$(pin patch) CFG=$(pin config)
+for f in $GLUE $CFG; do
+  [[ $f =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ && -f $PIN_DIR/$f ]] || die "bad patch/config in $PIN: '$f'"
+done
+GLUE=${GLUE:+$PIN_DIR/$GLUE} CFG=${CFG:+$PIN_DIR/$CFG} CFG=${CFG:-$HERE/fuzz.config}
 
 fetch() { # sha256 dest url [mirror...]
   # The SHA-256 decides what is accepted; a URL is only a carrier. The URLs
@@ -97,6 +105,8 @@ tar -xf "$TAR" -C "$OUT/src"
 [[ -f $SRC/Makefile ]] || die "tarball did not unpack to $SRC"
 
 # --- Patch the fuzz target into U-Boot's own fuzz directory -------------------
+# A release older than test/fuzz/ gets the glue its pin names first.
+if [[ -n $GLUE ]]; then patch -s -p1 -d "$SRC" < "$GLUE"; fi
 [[ -f $SRC/test/fuzz/Makefile && -f $SRC/include/test/fuzz.h ]] \
   || die "U-Boot $VER has no test/fuzz/ (FUZZ_TEST) mechanism to add the target to"
 cp "$HERE/fit_fuzz.c" "$SRC/test/fuzz/fit_fuzz.c"
@@ -109,12 +119,13 @@ if [[ -n $(pin source_date_epoch) ]]; then
 fi
 B=$OUT/sandbox
 rm -rf "$B"
-MK=(make -s -C "$SRC" O="$B" CC="$CC")
+# NO_SDL turns SDL off in trees older than CONFIG_SANDBOX_SDL; later ones ignore it.
+MK=(make -s -C "$SRC" O="$B" CC="$CC" NO_SDL=1)
 "${MK[@]}" sandbox_defconfig
-"$SRC/scripts/kconfig/merge_config.sh" -m -O "$B" "$B/.config" "$HERE/fuzz.config" >/dev/null
+"$SRC/scripts/kconfig/merge_config.sh" -m -O "$B" "$B/.config" "$CFG" >/dev/null
 "${MK[@]}" olddefconfig
 
-# Every line of fuzz.config must survive olddefconfig: Kconfig silently drops
+# Every line of the fragment must survive olddefconfig: Kconfig silently drops
 # options whose dependencies are not met (CONFIG_FUZZ needs CC_IS_CLANG).
 bad=0
 while read -r line; do
@@ -123,8 +134,8 @@ while read -r line; do
   elif [[ $line =~ ^#\ (CONFIG_[A-Z0-9_]+)\ is\ not\ set$ ]]; then
     ! grep -q "^${BASH_REMATCH[1]}=" "$B/.config" || { echo "  .config sets: ${BASH_REMATCH[1]}" >&2; bad=1; }
   fi
-done < "$HERE/fuzz.config"
-(( bad == 0 )) || die "fuzz.config did not apply (is \$CC=$CC a clang?)"
+done < "$CFG"
+(( bad == 0 )) || die "$(basename "$CFG") did not apply (is \$CC=$CC a clang?)"
 
 # --- Build ------------------------------------------------------------------------
 # The sandbox links thin archives, so ld holds every object open at once; that
@@ -132,14 +143,15 @@ done < "$HERE/fuzz.config"
 ulimit -n "$(ulimit -Hn)" 2>/dev/null || true
 "${MK[@]}" -j"$JOBS"
 
-# The link must carry the libFuzzer entry point, ASan and the FIT target.
+# The link must carry the FIT target, and libFuzzer and ASan in a CONFIG_FUZZ build.
+fuzz=0; grep -qx 'CONFIG_FUZZ=y' "$CFG" && fuzz=1
 syms=$(nm "$B/u-boot")
-for sym in LLVMFuzzerTestOneInput __asan_init fuzz_fit_check_format fuzz_fit_check_format_accept \
-           fuzz_fit_config_verify_check fuzz_fit_oracle_hook_check fit_check_format \
-           fit_config_verify fit_image_load; do
+for sym in fuzz_fit_check_format fuzz_fit_check_format_accept fuzz_fit_config_verify_check \
+           fuzz_fit_oracle_hook_check fit_check_format fit_config_verify fit_image_load \
+           $( (( fuzz )) && echo LLVMFuzzerTestOneInput __asan_init); do
   grep -qE "[[:space:]]$sym\$" <<< "$syms" || die "u-boot does not define $sym"
 done
-[[ -f $B/arch/sandbox/dts/test.dtb ]] || die "no test.dtb (the fuzzing-engine device lives in it)"
+(( !fuzz )) || [[ -f $B/arch/sandbox/dts/test.dtb ]] || die "no test.dtb (the fuzzing-engine device lives in it)"
 
 # What produced this build; ci-replay.sh takes source_date_epoch from here.
 {

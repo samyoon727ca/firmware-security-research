@@ -28,6 +28,8 @@
 # signed kernel through bootm's lookup and stays quiet. Last,
 # fuzz_fit_oracle_hook_check runs the oracle with its expected digest swapped
 # (a test-only hook): it must fire, i.e. abort with the UBOOT_FIT_ORACLE marker.
+# Then regress/cve-2021-27138.fit (a public n-day) must not fire on the pin,
+# and must fire on v2021.01 (pins/v2021.01.txt, built into <out>/v2021.01).
 #
 # The full libFuzzer/ASan log goes to <out>/results/ and is printed only
 # outside CI ($CI / $GITHUB_ACTIONS unset). Under CI the job prints the seed and
@@ -168,3 +170,31 @@ grep -q '^fit_fuzz: oracle test hook: expected digest swapped' "$log" \
   && ! grep -q '^fit_fuzz: signed seed check failed' "$log" \
   || die "$name: exit $rc, but not at the oracle; full log kept locally in results/ (not printed under CI)"
 echo "oracle test hook: the oracle fires when the expected digest is swapped (exit $rc, as intended)"
+
+# --- CVE-2021-27138 regression ---------------------------------------------------
+# The oracle's positive control (README). On the pin, fit_check_format() rejects
+# the '@' node and the target stays quiet: an abort fails the replay.
+REG=$HERE/regress/cve-2021-27138.fit
+G=$OUT/regress
+rm -rf "$G" && mkdir -p "$G" && cp "$REG" "$G/"
+replay fuzz_fit_check_format "$G" 1
+echo "CVE-2021-27138 input: the oracle stays quiet on U-Boot $(pin version)"
+
+# On v2021.01 it must fire. That tree has no libFuzzer: the glue's "fuzz"
+# command runs the same target once on the file, from the run directory.
+OB=$OUT/v2021.01/sandbox
+PIN=$HERE/pins/v2021.01.txt
+if (( BUILD )); then bash "$HERE/build.sh" --version-file "$PIN" --out "$OUT/v2021.01"; fi
+want="u-boot $(pin version) sha256 $(pin sha256)"
+[[ $(head -n 1 "$OB/toolchain.txt" 2>/dev/null) == "$want" ]] \
+  || die "$OB/u-boot is not a finished build of '$want'; rebuild it (drop --no-build)"
+cp "$HERE/replay/control-dev.dtb" "$HERE/replay/p2-signed.kernel.sha256" "$REG" "$OB/"
+log=$OUT/results/cve-2021-27138-v2021.01.log
+rc=0
+( cd "$OB" && ./u-boot -D -c "fuzz fuzz_fit_check_format cve-2021-27138.fit" ) > "$log" 2>&1 || rc=$?
+if ! in_ci; then cat "$log"; fi
+# fit_image_load() names the node it loads; the signature covers "kernel".
+(( rc != 0 )) && grep -q '^UBOOT_FIT_ORACLE: verified!=booted' "$log" \
+  && grep -q "Trying 'kernel@1' kernel subimage" "$log" \
+  || die "v2021.01: the oracle did not fire on kernel@1 (exit $rc); full log kept locally in results/"
+echo "CVE-2021-27138 input: the oracle fires on U-Boot 2021.01, bootm loaded kernel@1 (exit $rc, as intended)"
