@@ -7,7 +7,7 @@
 #   --out      a ci-replay.sh output: both variants built from pin.txt, seeds in replay/
 #   --seconds  fuzzing time per variant (default 60)
 #
-# libFuzzer fork mode, -ignore_crashes=1: fresh corpus/bench-<variant>/; log and
+# libFuzzer fork mode, -ignore_crashes=1: fresh <out>/corpus/bench-<variant>/; log and
 # crash artefacts in <out>/results/bench-<variant>* (candidates: keep local). exec/s
 # is runs / seconds from the last status line. Stop rule: see README.md.
 set -euo pipefail
@@ -41,12 +41,11 @@ echo "host: $(uname -srm), $(nproc) CPU(s); $(sed -n 3p "$OUT/sandbox/toolchain.
 
 status='^#([0-9]+): .* oom/timeout/crash: [0-9]+/[0-9]+/([0-9]+) time: ([0-9]+)s'
 for v in real stub; do
-  B=$OUT/sandbox want=0
-  if [[ $v == stub ]]; then B=$OUT/stub-sandbox want=2; fi
+  B=$OUT/sandbox want=0; [[ $v == real ]] || B=$OUT/stub-sandbox want=2
   marks=$(stub_marks "$B/u-boot")
   (( marks == want )) || die "$B/u-boot carries $marks crypto-stub mark(s), want $want for the $v variant"
   cp "$HERE"/replay/{control-dev.dtb,p2-signed.kernel.sha256} "$B/"
-  C=$HERE/corpus/bench-$v log=$RES/bench-$v.log rc=0
+  C=$OUT/corpus/bench-$v log=$RES/bench-$v.log rc=0
   rm -rf "$C" && mkdir -p "$C"
   echo "fuzzing the $v variant ($B/u-boot) for ${SECS}s ..."
   ( cd "$B" && UBOOT_SB_FUZZ_TEST=fuzz_fit_check_format \

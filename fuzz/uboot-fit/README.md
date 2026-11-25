@@ -39,7 +39,7 @@ the target, and CI replays a committed seed through it. It does no fuzzing campa
 | `replay/` | committed seeds, each a FIT `fit_check_format()` accepts. `minimal.its` is compiled with the tree's own `mkimage`; `p2-signed.fit` is the signed seed, `control-dev.dtb` the control DTB with its public key (`required = "conf"`), `p2-signed.kernel.sha256` the SHA-256 of its kernel payload (the oracle's expected digest), `p2-signed.regions.sha256` the digest its signature covers (the only one the stub accepts) |
 | `ci-replay.sh` | build both variants, then replay `replay/` with `-runs=0` (never mutates) through each; used by `.github/workflows/uboot-fit.yml` |
 | `confirm.sh` | replays inputs on the **real-crypto** build only: crash / timeout / verified / rejected each, appended to `build/results/confirm.txt` |
-| `bench.sh` | **local only**, never in CI: fuzzes each variant for N seconds into `corpus/` and `build/results/`, prints exec/s |
+| `bench.sh` | **local only**, never in CI: fuzzes each variant for N seconds into `build/corpus/` and `build/results/`, prints exec/s |
 
 ## Build
 
@@ -81,7 +81,7 @@ payload byte, bootm's lookup must refuse the kernel (counted, not reported). A f
 `fuzz_fit_oracle_hook_check`, must **fail**: it aborts at the oracle with the marker line (see
 below). Either way the binary must come from the `--version-file` pin: `ci-replay.sh` compares its version and SHA-256
 with `build/sandbox/toolchain.txt`, so `--no-build` cannot replay a build of another release.
-The crypto-stub build replays the seeds too and must accept a flipped signature byte that the real build rejects; `confirm.sh` must call the signed seed verified, `minimal.itb` rejected.
+The crypto-stub build replays the seeds too, must accept a flipped signature byte that the real build rejects, and its oracle test hook must fire; `confirm.sh` must call the signed seed verified, `minimal.itb` rejected.
 
 To run one input by hand: the sandbox finds `test.dtb`, and the target `control-dev.dtb` and
 `p2-signed.kernel.sha256`, relative to the working directory, so run from the build directory

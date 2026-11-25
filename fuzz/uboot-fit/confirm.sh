@@ -7,7 +7,8 @@
 # Usage: confirm.sh [--version-file pin.txt] [--out build/] <input>...
 #
 # Verdicts go to stdout and are appended to <out>/results/confirm.txt under a
-# dated line naming the binary; logs to <out>/results/confirm-<sha256>.log.
+# dated line naming the binary; logs to <out>/results/confirm-<sha256>.log. libFuzzer
+# saves no crash file for a file argument; -artifact_prefix sends any to results/ anyway.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 PIN=$HERE/pin.txt
@@ -31,14 +32,12 @@ for input in "$@"; do [[ -f $input ]] || die "not a file: $input"; done
 [[ -f $PIN ]] || die "no pin file: $PIN"
 B=$OUT/sandbox
 [[ -x $B/u-boot && -f $B/toolchain.txt ]] || die "no finished real-crypto build at $B (run build.sh)"
-B=$(cd "$B" && pwd)
-RES=$(dirname "$B")/results
+B=$(cd "$B" && pwd) RES=$(dirname "$B")/results
 pin() { awk -v k="$1:" '$1 == k {print $2}' "$PIN"; }
 want="u-boot $(pin version) sha256 $(pin sha256)"
 have=$(head -n 1 "$B/toolchain.txt")
 [[ $have == "$want" ]] || die "$B/u-boot was built from '$have', not '$want' ($PIN)"
-marks=$(stub_marks "$B/u-boot")
-(( marks == 0 )) || die "$B/u-boot carries $marks crypto-stub mark(s): not a real-crypto build, refusing"
+(( $(stub_marks "$B/u-boot") == 0 )) || die "$B/u-boot carries a crypto-stub mark: not a real-crypto build, refusing"
 grep -qE '[[:space:]]fuzz_fit_confirm$' < <(nm "$B/u-boot") || die "$B/u-boot lacks fuzz_fit_confirm; rebuild with build.sh"
 cp "$HERE"/replay/{control-dev.dtb,p2-signed.kernel.sha256} "$B/"
 
@@ -53,7 +52,7 @@ for input in "$@"; do
   # A file argument makes libFuzzer run that one input.
   ( cd "$B" && UBOOT_SB_FUZZ_TEST=fuzz_fit_confirm \
       ASAN_OPTIONS=${ASAN_OPTIONS:-abort_on_error=1:detect_leaks=0} \
-      ./u-boot -runs=0 -detect_leaks=0 -timeout=$T "$abs" ) > "$log" 2>&1 || rc=$?
+      ./u-boot -runs=0 -detect_leaks=0 -timeout=$T -artifact_prefix="$RES/confirm-" "$abs" ) > "$log" 2>&1 || rc=$?
   ! grep -qF "$STUB_BANNER" "$log" || die "$B/u-boot printed the crypto-stub banner; refusing"
   verdict=$(sed -n 's/^fit_fuzz: confirm: //p' "$log" | tail -n 1)
   if (( rc != 0 )) && grep -q 'ERROR: libFuzzer: timeout' "$log"; then

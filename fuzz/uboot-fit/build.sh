@@ -26,7 +26,7 @@ PIN=$HERE/pin.txt
 OUT=$HERE/build
 JOBS=${JOBS:-$(nproc 2>/dev/null || echo 2)}
 CC=${CC:-clang}
-STUB=0
+STUB=0 P=  # --crypto-stub: STUB=1 P=stub-
 . "$HERE/stub.sh"
 
 die() { echo "build.sh: $*" >&2; exit 1; }
@@ -36,7 +36,7 @@ while (( $# )); do
   case $1 in
     --version-file) [[ $# -ge 2 ]] || die "$1 needs a file"; PIN=$2; shift 2 ;;
     --out)          [[ $# -ge 2 ]] || die "$1 needs a directory"; OUT=$2; shift 2 ;;
-    --crypto-stub)  STUB=1; shift ;;
+    --crypto-stub)  STUB=1 P=stub-; shift ;;
     -h|--help)      usage; exit 0 ;;
     *)              die "unknown argument: $1 (see --help)" ;;
   esac
@@ -54,10 +54,6 @@ fi
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
 echo "build tree of fuzz/uboot-fit/build.sh; its src/, sandbox/, stub-*/ and replay/ are rebuilt on each run" > "$OUT/$MARKER"
-# The stub variant has its own source and object trees, so the patched source
-# and its objects never reach the default build's src/ and sandbox/.
-P=
-if (( STUB )); then P=stub-; fi
 
 for tool in curl sha256sum tar bzip2 make nm "$CC" ${P:+patch}; do
   command -v "$tool" >/dev/null || die "missing tool: $tool"
@@ -101,6 +97,8 @@ TAR=$(basename "${URLS[0]}")
 TAR=$DL/$TAR
 fetch "$SHA" "$TAR" "${URLS[@]}"
 
+# The stub variant has its own source and object trees, so the patched source
+# and its objects never reach the default build's src/ and sandbox/.
 SRC=$OUT/${P}src/u-boot-${VER#v}
 rm -rf "$OUT/${P}src" && mkdir -p "$OUT/${P}src"
 tar -xf "$TAR" -C "$OUT/${P}src"

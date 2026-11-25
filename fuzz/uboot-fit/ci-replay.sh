@@ -30,8 +30,8 @@
 # signed kernel through bootm's lookup and stays quiet. Last,
 # fuzz_fit_oracle_hook_check runs the oracle with its expected digest swapped
 # (a test-only hook): it must fire, i.e. abort with the UBOOT_FIT_ORACLE marker.
-# The stub build then replays the seeds and the signed seed check (a flipped signature
-# byte must pass); confirm.sh must call the signed seed verified, minimal.itb rejected.
+# The stub build then replays the seeds, the signed seed check (a flipped signature byte
+# must pass) and the oracle hook; confirm.sh must call the signed seed verified, minimal.itb rejected.
 #
 # The full libFuzzer/ASan log goes to <out>/results/ and is printed only
 # outside CI ($CI / $GITHUB_ACTIONS unset). Under CI the job prints the seed and
@@ -187,15 +187,19 @@ grep -q '^fit_fuzz: oracle test hook: expected digest swapped' "$log" \
   || die "$name: exit $rc, but not at the oracle; full log kept locally in results/ (not printed under CI)"
 echo "oracle test hook: the oracle fires when the expected digest is swapped (exit $rc, as intended)"
 
-# The crypto-stub build: no crash on any seed. The signed seed check passes under the stub (its
-# digest: p2-signed.regions.sha256) and, after all its checks, accepts a flipped signature byte.
+# The crypto-stub build (the one campaigns run): no crash on any seed; the signed seed check passes
+# (stub digest: p2-signed.regions.sha256) and accepts a flipped signature byte; the oracle hook fires.
 B=$OUT/stub-sandbox L=stub-
 replay fuzz_fit_check_format "$R" ${#seeds[@]}
 replay fuzz_fit_config_verify_check "$S" ${#signed[@]}
-log=$OUT/results/stub-fuzz_fit_config_verify_check.log
-(( $(grep -c '^fit_fuzz: signature byte flipped: accepted' "$log" || true) >= ${#signed[@]} )) \
+(( $(grep -c '^fit_fuzz: signature byte flipped: accepted' "$OUT/results/stub-fuzz_fit_config_verify_check.log" || true) >= ${#signed[@]} )) \
   || die "stub build: a flipped signature byte was rejected, so the RSA stub is not in effect"
-echo "stub build: ${#seeds[@]} seed(s) replayed, no crash; signed seed verifies, tampered copies rejected, flipped signature byte accepted"
+log=$OUT/results/$L$name.log rc=0
+run "$name" "$S" oracle-hook- || rc=$?
+(( rc != 0 )) && grep -q '^fit_fuzz: oracle test hook: expected digest swapped' "$log" \
+  && grep -q '^UBOOT_FIT_ORACLE: verified!=booted' "$log" && ! grep -q '^fit_fuzz: signed seed check failed' "$log" \
+  || die "$L$name: exit $rc, but the oracle did not fire; full log kept locally in results/ (not printed under CI)"
+echo "stub build: ${#seeds[@]} seed(s) replayed, no crash; signed seed verifies, tampered copies rejected, flipped signature byte accepted; oracle test hook fires"
 
 # confirm.sh on the real-crypto build: the signed seed verifies, minimal.itb
 # (no signature for the required key) is rejected.
