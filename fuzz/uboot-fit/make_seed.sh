@@ -89,7 +89,7 @@ printf '/dts-v1/;\n/ {\n};\n' > "$W/control.dts"
 # the public key, is a SHA-256 DigestInfo; its last 32 bytes are the digest.
 sig=$("$B/tools/mkimage" -l "$W/p2-signed.fit" | sed -n 's/^ *Sign value: *\([0-9a-f]*\)$/\1/p')
 [[ $sig =~ ^[0-9a-f]{768}$ ]] || die "no single RSA-3072 signature value in mkimage -l output"
-python3 -c 'import sys; sys.stdout.buffer.write(bytes.fromhex(sys.argv[1]))' "$sig" > "$W/sig.bin"
+printf '%b' "$(sed 's/../\\x&/g' <<< "$sig")" > "$W/sig.bin"  # hex to bytes (bash printf, no python3)
 info=$(openssl pkeyutl -verifyrecover -certin -inkey "$KEYS/$KEY_NAME.crt" -in "$W/sig.bin" | od -An -v -tx1 | tr -d ' \n')
 [[ $info =~ ^3031300d060960864801650304020105000420([0-9a-f]{64})$ ]] \
   || die "the signature does not open to a SHA-256 DigestInfo"

@@ -97,8 +97,7 @@ TAR=$(basename "${URLS[0]}")
 TAR=$DL/$TAR
 fetch "$SHA" "$TAR" "${URLS[@]}"
 
-# The stub variant has its own source and object trees, so the patched source
-# and its objects never reach the default build's src/ and sandbox/.
+# The stub variant gets its own source and object trees: its patch never reaches src/ or sandbox/.
 SRC=$OUT/${P}src/u-boot-${VER#v}
 rm -rf "$OUT/${P}src" && mkdir -p "$OUT/${P}src"
 tar -xf "$TAR" -C "$OUT/${P}src"
@@ -109,10 +108,6 @@ tar -xf "$TAR" -C "$OUT/${P}src"
   || die "U-Boot $VER has no test/fuzz/ (FUZZ_TEST) mechanism to add the target to"
 cp "$HERE/fit_fuzz.c" "$SRC/test/fuzz/fit_fuzz.c"
 printf '\nobj-$(CONFIG_FIT) += fit_fuzz.o\n' >> "$SRC/test/fuzz/Makefile"
-if (( STUB )); then
-  patch -s -p1 --forward --fuzz=0 --no-backup-if-mismatch -d "$SRC" -i "$HERE/crypto-stub.patch" \
-    || die "crypto-stub.patch does not apply to U-Boot $VER"
-fi
 
 # --- Configure ------------------------------------------------------------------
 if [[ -n $(pin source_date_epoch) ]]; then
@@ -123,7 +118,9 @@ B=$OUT/${P}sandbox
 rm -rf "$B"
 MK=(make -s -C "$SRC" O="$B" CC="$CC")
 if (( STUB )); then
-  # The stub accepts one digest, compiled in: the one the committed seed's signature covers.
+  # The RSA stub, and the one digest it accepts (compiled in): the one the committed seed's signature covers.
+  patch -s -p1 --forward --fuzz=0 --no-backup-if-mismatch -d "$SRC" -i "$HERE/crypto-stub.patch" \
+    || die "crypto-stub.patch does not apply to U-Boot $VER"
   digest=$(< "$HERE/replay/p2-signed.regions.sha256")
   [[ $digest =~ ^[0-9a-f]{64}$ ]] || die "replay/p2-signed.regions.sha256 holds no SHA-256 (run make_seed.sh)"
   MK+=("KCFLAGS=-DFUZZ_CRYPTO_STUB -DFUZZ_CRYPTO_STUB_DIGEST=$digest")

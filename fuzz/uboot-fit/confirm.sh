@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
-# Replay inputs on the REAL-CRYPTO build, <out>/sandbox/u-boot (from the pin,
-# no crypto-stub mark: stub.sh), one at a time through fuzz_fit_confirm with
-# libFuzzer -timeout=25, and say what each does: crash, timeout, verified or
-# rejected. Run it on every crypto-stub hit: only what it confirms counts.
+# Replay inputs on the REAL-CRYPTO build, <out>/sandbox/u-boot (from the pin, no crypto-stub
+# mark: stub.sh), one at a time through fuzz_fit_confirm (libFuzzer -timeout=25): crash, timeout,
+# verified or rejected each, or noverdict for exit 0 without a verdict line (then exit 1 at the
+# end). Run it on every crypto-stub hit: only what it confirms counts.
 #
-# Usage: confirm.sh [--version-file pin.txt] [--out build/] <input>...
+# Usage: confirm.sh [--version-file pin.txt] [--out build/] [--] <input>...
 #
-# Verdicts go to stdout and are appended to <out>/results/confirm.txt under a
-# dated line naming the binary; logs to <out>/results/confirm-<sha256>.log. libFuzzer
-# saves no crash file for a file argument; -artifact_prefix sends any to results/ anyway.
+# Verdicts go to stdout and are appended to <out>/results/confirm.txt under a dated line
+# naming the binary; logs to results/confirm-<sha256>.log. libFuzzer saves no crash file
+# for a file argument; -artifact_prefix sends any to results/ anyway.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 PIN=$HERE/pin.txt
 OUT=$HERE/build
 T=25  # seconds per input before libFuzzer reports a timeout
+bad=0  # inputs that exited 0 without a verdict line
 . "$HERE/stub.sh"
 
 die() { echo "confirm.sh: $*" >&2; exit 1; }
@@ -23,6 +24,7 @@ while (( $# )); do
     --version-file) [[ $# -ge 2 ]] || die "$1 needs a file"; PIN=$2; shift 2 ;;
     --out)          [[ $# -ge 2 ]] || die "$1 needs a directory"; OUT=$2; shift 2 ;;
     -h|--help)      sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
+    --)             shift; break ;;
     -*)             die "unknown option: $1 (see --help)" ;;
     *)              break ;;
   esac
@@ -47,8 +49,7 @@ echo "== $(date -u +%FT%TZ) confirm.sh: real-crypto binary $B/u-boot ($have; sha
 for input in "$@"; do
   abs=$(readlink -f -- "$input")
   sum=$(sha256sum < "$abs" | cut -d' ' -f1)
-  log=$RES/confirm-$sum.log
-  rc=0
+  log=$RES/confirm-$sum.log rc=0
   # A file argument makes libFuzzer run that one input.
   ( cd "$B" && UBOOT_SB_FUZZ_TEST=fuzz_fit_confirm \
       ASAN_OPTIONS=${ASAN_OPTIONS:-abort_on_error=1:detect_leaks=0} \
@@ -60,8 +61,10 @@ for input in "$@"; do
   elif (( rc != 0 )); then
     verdict="crash exit $rc"
     if grep -q '^UBOOT_FIT_ORACLE: verified!=booted' "$log"; then verdict+=", oracle: verified!=booted"; fi
+  elif [[ -z $verdict ]]; then
+    verdict="noverdict exit 0 without a 'fit_fuzz: confirm:' line" bad=$((bad + 1))
   fi
-  [[ -n $verdict ]] || die "no verdict for $input (exit 0); see $log"
   printf '%s  %s  %s  (%s; log %s)\n' "${verdict%% *}" "$sum" "$input" "${verdict#* }" "$log" \
     | tee -a "$RES/confirm.txt"
 done
+(( bad == 0 )) || die "$bad input(s) exited 0 without a verdict (noverdict lines above); see their logs"

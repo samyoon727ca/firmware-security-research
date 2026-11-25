@@ -7,9 +7,8 @@
 #   --out      a ci-replay.sh output: both variants built from pin.txt, seeds in replay/
 #   --seconds  fuzzing time per variant (default 60)
 #
-# libFuzzer fork mode, -ignore_crashes=1: fresh <out>/corpus/bench-<variant>/; log and
-# crash artefacts in <out>/results/bench-<variant>* (candidates: keep local). exec/s
-# is runs / seconds from the last status line. Stop rule: see README.md.
+# libFuzzer fork mode, -ignore_crashes=1, fresh <out>/corpus/bench-<variant>/; log and crash artefacts
+# (candidates: keep local) in <out>/results/bench-<variant>*. exec/s: runs / seconds. Stop rule: README.md.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=$HERE/build
