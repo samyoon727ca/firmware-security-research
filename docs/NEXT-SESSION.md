@@ -84,8 +84,11 @@ full sequence: [`track1-uas-run-plan.md`](track1-uas-run-plan.md). Reproduce H1 
 **P7.4 — U-Boot FIT fuzz target, Phase 0 built:** the pinned v2026.07 sandbox builds with
 libFuzzer + ASan and links a `fit_check_format()` harness (U-Boot's own `FUZZ_TEST` mechanism);
 CI replays the committed seed only, with no mutation and no raw sanitizer log in the public job
-output. See [`../fuzz/uboot-fit/README.md`](../fuzz/uboot-fit/README.md). Next: a
-`fit_config_verify` target with a dev key, then the signature-bypass oracle.
+output. A dev-signed seed now runs through `fit_config_verify`, and a verified-equals-booted
+oracle checks that the kernel bootm's `fit_image_load()` returns is the signed one (CI shows the
+seed quiet and the oracle's test hook firing). See
+[`../fuzz/uboot-fit/README.md`](../fuzz/uboot-fit/README.md). Next: the v2021.01 /
+CVE-2021-27138 regression for the oracle.
 
 Guardrails unchanged: WSL for the gate (keep it green), a new branch — never `main`, coordinated
 disclosure / no committed blobs, and

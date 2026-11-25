@@ -74,7 +74,8 @@ research/
                                xrce_probe) and a results write-up per campaign
 fuzz/
   uboot-fit/                   U-Boot FIT parser fuzz target: pinned v2026.07 sandbox built with
-                               libFuzzer + ASan, fit_check_format() harness, CI seed replay
+                               libFuzzer + ASan, fit_check_format() harness, fit_config_verify
+                               + verified-equals-booted oracle, CI seed replay
                                (Phase 0; sources, corpora and results git-ignored)
 writeups/
   dir-816l-hnap-soapaction-cmdinjection.md  Track 1 case study: patch-diffing rediscovers an
@@ -138,7 +139,8 @@ four live Track 1 runs are recorded. Per-deliverable status is in
   (P6.2) as the build-side control:
   [`docs/track2/uas-capstone-assessment.md`](docs/track2/uas-capstone-assessment.md).
 - **U-Boot FIT parser fuzz target (P7.4, Phase 0)** — the pinned v2026.07 sandbox builds with
-  libFuzzer + ASan and links a `fit_check_format()` target; CI replays a committed seed, no
+  libFuzzer + ASan and links a `fit_check_format()` target, then `fit_config_verify()` and a
+  verified-equals-booted oracle on bootm's kernel lookup; CI replays the committed seeds, no
   campaign yet: [`fuzz/uboot-fit/`](fuzz/uboot-fit/README.md).
 - **Track 1 — three router runs, method proven end-to-end (each finding deduped as an n-day):**
   - **Run 1 — DIR-816L Rev B (D-Link, RTL819x MIPS-BE):** funnel exercised end-to-end

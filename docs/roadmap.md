@@ -63,7 +63,7 @@ IDs are stable and are the ones other documents cite (for example "P5.1").
 | P7.1 | PX4 re-anchor and CVE-2026-1579 dedup pass | done (2026-09-21) | Embedded assessment; architecture |
 | P7.2 | [Micro-XRCE-DDS Agent assessment](../research/uas-autonomy/phase2-micro-xrce-dds-scope.md) | in progress (see run 4) | Embedded assessment; software assurance; cyber T&E |
 | P7.3 | Flight-controller secure-boot teardown | planned (needs an owned board) | Embedded hardware; anti-tamper |
-| P7.4 | [U-Boot FIT parser fuzz target](../fuzz/uboot-fit/README.md) (`fit_check_format`, pinned v2026.07 sandbox) | built (Phase 0: libFuzzer + ASan build links; CI replays the committed seed, no campaign yet) | Secure boot; software assurance; cyber T&E |
+| P7.4 | [U-Boot FIT parser fuzz target](../fuzz/uboot-fit/README.md) (`fit_check_format`, pinned v2026.07 sandbox) | built (Phase 0: libFuzzer + ASan build links; dev-signed seed through `fit_config_verify`; verified-equals-booted oracle via bootm's `fit_image_load()`; CI replays the seeds and fires the oracle's test hook, no campaign yet) | Secure boot; software assurance; cyber T&E |
 | T2 | [GNSS-spoofing test plan](track2/uas-gnss-spoofing-test-plan.md) | plan written; SITL run pending | Cyber T&E |
 
 ## Next

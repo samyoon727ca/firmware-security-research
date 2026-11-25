@@ -9,15 +9,26 @@
  * control devicetree holding a required = "conf" key (P2's setup), which
  * reaches the config lookup, hashed-nodes, region building and the RSA check.
  *
+ * When that verifies, a semantic oracle checks that verified equals booted:
+ * the kernel bootm would boot, looked up by bootm's own fit_image_load() call,
+ * must hash to the kernel the dev key signed. If it does not, the target
+ * prints "UBOOT_FIT_ORACLE: verified!=booted" and aborts, so libFuzzer keeps
+ * the input as a crash (the CVE-2021-27097 / CVE-2021-27138 class, which no
+ * sanitizer sees).
+ *
  * It uses U-Boot's own fuzz mechanism (CONFIG_FUZZ, FUZZ_TEST) so it can be
  * sent upstream as is. fuzz/uboot-fit/build.sh copies it into test/fuzz/ of
  * the pinned tree at build time; it is not built from this directory.
  *
  * Run: UBOOT_SB_FUZZ_TEST=fuzz_fit_check_format ./u-boot [libFuzzer args]
- * from a directory holding the control devicetree, FIT_FUZZ_CONTROL_DTB.
+ * from a directory holding the control devicetree, FIT_FUZZ_CONTROL_DTB, and
+ * the signed kernel's digest, FIT_FUZZ_KERNEL_SHA256.
  */
 
+#include <bootstage.h>
+#include <hexdump.h>
 #include <image.h>
+#include <mapmem.h>
 #include <os.h>
 #include <asm/global_data.h>
 #include <stdio.h>
@@ -25,6 +36,7 @@
 #include <linux/string.h>
 #include <linux/types.h>
 #include <test/fuzz.h>
+#include <u-boot/sha256.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -38,6 +50,15 @@ DECLARE_GLOBAL_DATA_PTR;
  * fit_config_verify() accepts any FIT, so the target refuses to run without it.
  */
 #define FIT_FUZZ_CONTROL_DTB	"control-dev.dtb"
+
+/*
+ * SHA-256, in hex, of the kernel payload the dev key signed, read from the
+ * working directory (fuzz/uboot-fit/replay/p2-signed.kernel.sha256, which
+ * make_seed.sh writes with the seed and ci-replay.sh copies there). Only the
+ * dev key in FIT_FUZZ_CONTROL_DTB can make a FIT verify, and it signed this
+ * kernel only, so any other kernel bytes that bootm would boot are a bypass.
+ */
+#define FIT_FUZZ_KERNEL_SHA256	"p2-signed.kernel.sha256"
 
 /*
  * The sandbox's malloc() is U-Boot's own heap, which AddressSanitizer cannot
@@ -118,11 +139,96 @@ static int fit_fuzz_config_verify(const void *fit)
 	return ret;
 }
 
+/* The signed kernel's digest, read once; aborts if the file is not one. */
+static const u8 *fit_fuzz_signed_digest(void)
+{
+	static u8 digest[SHA256_SUM_LEN];
+	static bool loaded;
+	char *hex;
+	int size;
+
+	if (loaded)
+		return digest;
+	if (os_read_file(FIT_FUZZ_KERNEL_SHA256, (void **)&hex, &size) ||
+	    size < 2 * SHA256_SUM_LEN || size > 2 * SHA256_SUM_LEN + 1 ||
+	    (size > 2 * SHA256_SUM_LEN && hex[2 * SHA256_SUM_LEN] != '\n') ||
+	    hex2bin(digest, hex, SHA256_SUM_LEN)) {
+		printf("fit_fuzz: no valid %s in the working directory\n",
+		       FIT_FUZZ_KERNEL_SHA256);
+		os_abort();
+	}
+	os_free(hex);
+	loaded = true;
+
+	return digest;
+}
+
+/* Verified FITs whose kernel bootm would not load: refused, not a bypass. */
+static unsigned long fit_fuzz_not_booted;
+
+/*
+ * The verified-equals-booted oracle. Call it only once fit_config_verify()
+ * has accepted the default configuration of @fit. It looks the kernel up as
+ * bootm does for "bootm <addr>" (boot_get_kernel() in boot/bootm.c): the same
+ * fit_image_load() call on the same buffer, default configuration,
+ * IH_ARCH_DEFAULT, IH_TYPE_KERNEL, FIT_LOAD_IGNORED, with images.verify on
+ * (as bootm_start() leaves it unless the "verify" variable says no) and the
+ * dev control DTB as the key blob, so fit_image_load() runs its own config
+ * and image hash checks first. If the bytes it returns do not hash to @want,
+ * bootm would boot unsigned bytes: the process aborts with the marker line,
+ * and libFuzzer saves the input.
+ *
+ * If fit_image_load() fails, bootm refuses the FIT and boots nothing, so that
+ * is not a bypass: it is counted, and the input passes. Returns 0 if the
+ * kernel matched, else the fit_image_load() error.
+ *
+ * The sandbox gives a pointer outside its RAM a sandbox address by allocating
+ * a map tag the first time it sees that pointer, and keeps it: once for the
+ * buffer, and once per kernel data offset in it, never once per input.
+ */
+static int fit_fuzz_oracle(const void *fit, const u8 *want)
+{
+	/* A zeroed copy of bootm's global "images", as bootm_start() makes it. */
+	struct bootm_headers hdrs = { .verify = 1 };
+	const void *saved = gd->fdt_blob;
+	u8 got[SHA256_SUM_LEN];
+	ulong data, len;
+	const void *buf;
+	int ret;
+
+	gd->fdt_blob = fit_fuzz_control_fdt();
+	ret = fit_image_load(&hdrs, map_to_sysmem(fit), NULL, NULL,
+			     IH_ARCH_DEFAULT, IH_TYPE_KERNEL,
+			     BOOTSTAGE_ID_FIT_KERNEL_START, FIT_LOAD_IGNORED,
+			     &data, &len);
+	gd->fdt_blob = saved;
+	if (ret < 0) {
+		printf("fit_fuzz: oracle: verified, but bootm would not load the kernel (%d); not a bypass, %lu so far\n",
+		       ret, ++fit_fuzz_not_booted);
+		return ret;
+	}
+
+	buf = map_sysmem(data, len);
+	sha256_csum_wd(buf, len, got, CHUNKSZ_SHA256);
+	unmap_sysmem(buf);
+	if (memcmp(got, want, sizeof(got))) {
+		/* On a line of its own: the checks above can leave one open. */
+		printf("\nUBOOT_FIT_ORACLE: verified!=booted\n");
+		os_abort();
+	}
+
+	return 0;
+}
+
 static int fuzz_fit_check_format(const uint8_t *data, size_t size)
 {
+	/* Read at the first call (libFuzzer's empty input), not at a first hit. */
+	const u8 *want = fit_fuzz_signed_digest();
+
 	/* The real size, so FIT_FULL_CHECK bounds the tree by the input. */
-	if (fit_fuzz_load(data, size) && !fit_check_format(fit_fuzz_buf, size))
-		fit_fuzz_config_verify(fit_fuzz_buf);
+	if (fit_fuzz_load(data, size) && !fit_check_format(fit_fuzz_buf, size) &&
+	    !fit_fuzz_config_verify(fit_fuzz_buf))
+		fit_fuzz_oracle(fit_fuzz_buf, want);
 
 	return 0;
 }
@@ -181,12 +287,15 @@ static int fit_fuzz_image_verify(const void *fit, int noffset)
  * Seed check for the signed seeds (the *.fit files in replay/), not a fuzz
  * target: the process aborts unless the input
  *  1. passes fit_check_format() and fit_config_verify() against the dev key,
- *     and its kernel passes fit_image_verify() (its sha256 hash node);
+ *     and its kernel passes fit_image_verify() (its sha256 hash node). The
+ *     fuzz target's oracle then runs on it, and bootm's lookup must load a
+ *     kernel that matches the signed digest (the oracle ran and stayed quiet);
  *  2. with one byte of the kernel payload flipped, is rejected. The config
  *     signature leaves out the "data" property (it covers each image's hash
  *     value instead), so the flip still passes fit_config_verify() and is
  *     caught by fit_image_verify(), as in fit_image_load(). Both results
- *     are asserted;
+ *     are asserted, and so is that the oracle sees bootm refuse it: verified
+ *     but not booted is counted, not reported;
  *  3. with one byte of the kernel's hash value flipped, fails
  *     fit_config_verify() itself.
  */
@@ -214,6 +323,9 @@ static int fuzz_fit_config_verify_check(const uint8_t *data, size_t size)
 		fit_fuzz_fail("no kernel in the default configuration", kernel);
 	if (!fit_fuzz_image_verify(fit_fuzz_buf, kernel))
 		fit_fuzz_fail("fit_image_verify() rejected the kernel", 0);
+	ret = fit_fuzz_oracle(fit_fuzz_buf, fit_fuzz_signed_digest());
+	if (ret)
+		fit_fuzz_fail("bootm's lookup did not load the seed's kernel", ret);
 
 	/* 2. One byte in the middle of the kernel payload. */
 	ret = fit_image_get_data(fit_fuzz_buf, kernel, &payload, &len);
@@ -228,6 +340,9 @@ static int fuzz_fit_config_verify_check(const uint8_t *data, size_t size)
 			      ret);
 	if (fit_fuzz_image_verify(fit_fuzz_buf, kernel))
 		fit_fuzz_fail("fit_image_verify() accepted a flipped kernel byte", 1);
+	ret = fit_fuzz_oracle(fit_fuzz_buf, fit_fuzz_signed_digest());
+	if (ret >= 0)
+		fit_fuzz_fail("bootm's lookup loaded a flipped kernel byte", ret);
 	fit_fuzz_buf[off] ^= 0x01;
 
 	/* 3. One byte of the kernel's signed hash value. */
@@ -242,7 +357,43 @@ static int fuzz_fit_config_verify_check(const uint8_t *data, size_t size)
 		fit_fuzz_fail("fit_config_verify() accepted a flipped hash value", 0);
 	printf("fit_fuzz: %zu-byte signed seed verifies; kernel tampering rejected\n",
 	       size);
+	printf("fit_fuzz: oracle: bootm loads the signed kernel; quiet on the seed\n");
 
 	return 0;
 }
 FUZZ_TEST(fuzz_fit_config_verify_check, 0);
+
+/*
+ * Oracle test hook for ci-replay.sh, not a fuzz target: the fuzz target's
+ * path on a signed seed (format check, fit_config_verify(), then the oracle),
+ * but with one bit of the expected digest flipped. bootm's lookup loads the
+ * signed kernel as usual, which no longer matches, so the oracle must fire
+ * (marker line, abort) on 2026.07 with no bypass input. Reaching this test is
+ * the explicit test flag: the swapped digest exists only here, the fuzz
+ * target always passes the one read from FIT_FUZZ_KERNEL_SHA256, and this
+ * test runs only when named, UBOOT_SB_FUZZ_TEST=fuzz_fit_oracle_hook_check.
+ */
+static int fuzz_fit_oracle_hook_check(const uint8_t *data, size_t size)
+{
+	u8 want[SHA256_SUM_LEN];
+	int ret;
+
+	if (!size)
+		return 0;
+	if (!fit_fuzz_load(data, size))
+		fit_fuzz_fail("input size out of range", (int)size);
+	ret = fit_check_format(fit_fuzz_buf, size);
+	if (ret)
+		fit_fuzz_fail("fit_check_format() rejected the seed", ret);
+	ret = fit_fuzz_config_verify(fit_fuzz_buf);
+	if (ret)
+		fit_fuzz_fail("fit_config_verify() rejected the seed", ret);
+	memcpy(want, fit_fuzz_signed_digest(), sizeof(want));
+	want[0] ^= 0x01;
+	printf("\nfit_fuzz: oracle test hook: expected digest swapped, so the oracle must fire; a hit here is not a finding\n");
+	ret = fit_fuzz_oracle(fit_fuzz_buf, want);
+	fit_fuzz_fail("oracle test hook: the oracle did not fire", ret);
+
+	return 0;
+}
+FUZZ_TEST(fuzz_fit_oracle_hook_check, 0);
