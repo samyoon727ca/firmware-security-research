@@ -26,6 +26,7 @@ This repo is organized around three tracks:
 
 Deliverable status, the run-by-run ledger, and the competency each artifact evidences
 are in [`docs/roadmap.md`](docs/roadmap.md).
+How the repo works end to end (flow, code map, tests, open edges) is in [`docs/GUIDE.md`](docs/GUIDE.md).
 
 ## Repository map
 
