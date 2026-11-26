@@ -37,9 +37,11 @@ the target, and CI replays a committed seed through it. It does no fuzzing campa
 | `seeds/cc.its` | P2's FIT source (`cc/fit/cc.its` in `uas-sec-p2-verified-boot`, provenance in the file): kernel + fdt + ramdisk, sha256 hashes, one config signed with `sign-images` |
 | `make_seed.sh` | signs `seeds/cc.its` over dummy payloads with a dev-only key and the tree's own `mkimage`; writes the four `replay/` files below |
 | `replay/` | committed seeds, each a FIT `fit_check_format()` accepts. `minimal.its` is compiled with the tree's own `mkimage`; `p2-signed.fit` is the signed seed, `control-dev.dtb` the control DTB with its public key (`required = "conf"`), `p2-signed.kernel.sha256` the SHA-256 of its kernel payload (the oracle's expected digest), `p2-signed.regions.sha256` the digest its signature covers (the only one the stub accepts) |
-| `ci-replay.sh` | build both variants, then replay `replay/` with `-runs=0` (never mutates) through each; used by `.github/workflows/uboot-fit.yml` |
+| `ci-replay.sh` | build both variants, then replay `replay/` with `-runs=0` (never mutates) through each, then the CVE-2021-27138 regression on the pin and on v2021.01; used by `.github/workflows/uboot-fit.yml` |
 | `confirm.sh` | replays inputs on the **real-crypto** build only: crash / timeout / verified / rejected each (noverdict, and exit 1, if it gets none), appended to `build/results/confirm.txt` |
 | `bench.sh` | **local only**, never in CI: fuzzes each variant for N seconds into `build/corpus/` and `build/results/`, prints exec/s |
+| `pins/v2021.01.*` | U-Boot v2021.01: pin (SHA-256-checked tarball), config fragment, and the small glue patch that tree needs (`FUZZ_TEST` shim, a `fuzz <test> <file>` replay command, the rsa3072 table entry) |
+| `regress/` | `cve-2021-27138.its` (the unsigned `kernel@1` donor), `graft_node.py`, `make_cve_2021_27138.sh`, and the committed input `cve-2021-27138.fit` they build from the signed seed |
 
 ## Build
 
@@ -168,6 +170,20 @@ M2 Pro host: Colima VM (aarch64, Linux 6.8, 4 vCPUs), Ubuntu 24.04 container, cl
 **Stop rule** (from the proposal): if even the stubbed build runs under ~100 exec/s, stop and
 report rather than start a campaign. `bench.sh` prints a `STOP RULE` line when that happens.
 
+## CVE-2021-27138 regression
+
+The oracle's positive control is a real, public bypass. Before v2021.04, libfdt's name lookup let
+a configuration's `kernel = "kernel"` match a node called `kernel@1`, while the config signature
+hashes `hashed-nodes` by exact path. `regress/make_cve_2021_27138.sh` puts an unsigned `kernel@1`
+(from `regress/cve-2021-27138.its`) in front of the signed `kernel` in a copy of the signed
+seed, changing no signed byte and needing no key. `ci-replay.sh` asserts that on v2021.01 the
+fuzz target aborts with `UBOOT_FIT_ORACLE: verified!=booted` after bootm's lookup loads
+`kernel@1`, and that on the pin `confirm.sh` reports the same input rejected by `fit_check_format()`
+(the `@`). This matters because a quiet oracle proves nothing by itself and the test hook only swaps
+the digest: here the oracle catches a bypass that a real U-Boot loaded. The input is a public n-day,
+so it is committed. v2021.01 predates `test/fuzz/`, so it is a plain sandbox build with
+`pins/v2021.01.patch`; `kernel@1` says `arch = "sandbox"`, the only one that sandbox loads.
+
 ## Regenerating the signed seed
 
 ```bash
@@ -198,12 +214,8 @@ release key.
 - **`--out` safety.** `build.sh` deletes and recreates `<out>/src` and `<out>/sandbox` (`stub-*` with `--crypto-stub`), and
   `ci-replay.sh` recreates `<out>/replay` and `<out>/signed`, so both refuse an `--out` that is
   not new, empty, or marked with the `.uboot-fit-build` file `build.sh` writes there.
-- **Older releases (v2021.01, for the CVE-2021-27138 oracle task).** The pin is overridable, but
-  this build path does not carry over as is: trees from before roughly 2022 have no
-  `test/fuzz/` `FUZZ_TEST` mechanism (`build.sh` stops with a clear error), and their
-  `fit_check_format()` takes no size argument, so `fit_fuzz.c` does not compile there. That task
-  needs its own entry point (a standalone `LLVMFuzzerTestOneInput`) or a backport of the fuzz
-  mechanism.
+- **Older releases.** Trees from before roughly 2022 have no `test/fuzz/` and a `fit_check_format()`
+  without a size argument: their pin names a glue `patch:` and `config:` (`pins/v2021.01.txt`).
 - **Pin.** `pin.txt` was checked against `cc/uboot/pin.txt` in `uas-sec-p2-verified-boot`: the
   version, URL, SHA-256, mirrors, commit and `SOURCE_DATE_EPOCH` all match.
 - Every crash is a **candidate**, not a finding: minimize, root-cause in source, and run the
