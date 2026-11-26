@@ -87,8 +87,9 @@ CI replays the committed seed only, with no mutation and no raw sanitizer log in
 output. A dev-signed seed now runs through `fit_config_verify`, and a verified-equals-booted
 oracle checks that the kernel bootm's `fit_image_load()` returns is the signed one (CI shows the
 seed quiet and the oracle's test hook firing). See
-[`../fuzz/uboot-fit/README.md`](../fuzz/uboot-fit/README.md). Next: the v2021.01 /
-CVE-2021-27138 regression for the oracle.
+[`../fuzz/uboot-fit/README.md`](../fuzz/uboot-fit/README.md). Two n-day regressions show the
+oracle firing on real bypasses: CVE-2021-27138 on v2021.01, and CVE-2026-46728 at its fix's parent
+(quiet at the fix and on 2026.07). Next: check P2 against CVE-2026-46728.
 
 Guardrails unchanged: WSL for the gate (keep it green), a new branch — never `main`, coordinated
 disclosure / no committed blobs, and

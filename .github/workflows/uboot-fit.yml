@@ -47,3 +47,24 @@ jobs:
       # results/ (replay logs, crash artefacts) is never uploaded or printed here.
       - name: Build and replay the seeds
         run: bash fuzz/uboot-fit/ci-replay.sh
+
+  # The CVE-2026-46728 regression (fuzz/uboot-fit/regressions/CVE-2026-46728.md):
+  # three more sandbox builds (fix^, fix, the pin), so a job of its own beside replay.
+  cve-2026-46728:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install U-Boot sandbox build dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends \
+            clang llvm libclang-rt-dev make bison flex bc libssl-dev libgnutls28-dev uuid-dev \
+            python3-dev python3-setuptools swig pkg-config
+
+      # results/ (confirm.sh verdicts and logs) is never uploaded or printed here.
+      - name: The oracle fires at fix^ and stays quiet at fix and at the pin
+        run: bash fuzz/uboot-fit/regress/check_cve_2026_46728.sh

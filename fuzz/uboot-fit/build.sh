@@ -4,7 +4,8 @@
 #
 # Usage: build.sh [--version-file pin.txt] [--out build/] [--crypto-stub]
 #
-#   --version-file  U-Boot pin: version, url, sha256, optional mirrors,
+#   --version-file  U-Boot pin: version (a release, or a commit SHA for a
+#                   snapshot), url, sha256, optional mirrors,
 #                   source_date_epoch, and a glue "patch" + "config" fragment
 #                   for trees without test/fuzz/ (pins/v2021.01.txt), both
 #                   next to the pin (default: pin.txt next to this script)
@@ -66,8 +67,10 @@ pin() { awk -v k="$1:" '$1 == k {print $2}' "$PIN"; }
 
 VER=$(pin version)
 SHA=$(pin sha256)
-# Both end up in paths and in a sha256sum line, so take only the expected shape.
-[[ $VER =~ ^v?[0-9]{4}\.[0-9]{2}(-rc[0-9]+)?$ ]] || die "bad version in $PIN: '$VER'"
+# Both end up in paths and in a sha256sum line, so take only the expected shape:
+# a release, or the full commit SHA of a forge snapshot (archive/<sha>.tar.gz,
+# which unpacks to u-boot-<sha>, as in pins/cve-2026-46728-*.txt).
+[[ $VER =~ ^v?[0-9]{4}\.[0-9]{2}(-rc[0-9]+)?$ || $VER =~ ^[0-9a-f]{40}$ ]] || die "bad version in $PIN: '$VER'"
 [[ $SHA =~ ^[0-9a-f]{64}$ ]] || die "bad sha256 in $PIN: '$SHA'"
 mapfile -t URLS < <(pin url; pin mirror)
 (( ${#URLS[@]} )) || die "no url in $PIN"

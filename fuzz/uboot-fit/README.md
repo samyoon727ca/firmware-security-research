@@ -41,7 +41,8 @@ the target, and CI replays a committed seed through it. It does no fuzzing campa
 | `confirm.sh` | replays inputs on the **real-crypto** build only: crash / timeout / verified / rejected each (noverdict, and exit 1, if it gets none), appended to `build/results/confirm.txt` |
 | `bench.sh` | **local only**, never in CI: fuzzes each variant for N seconds into `build/corpus/` and `build/results/`, prints exec/s |
 | `pins/v2021.01.*` | U-Boot v2021.01: pin (SHA-256-checked tarball), config fragment, and the small glue patch that tree needs (`FUZZ_TEST` shim, a `fuzz <test> <file>` replay command, the rsa3072 table entry) |
-| `regress/` | `cve-2021-27138.its` (the unsigned `kernel@1` donor), `graft_node.py`, `make_cve_2021_27138.sh`, and the committed input `cve-2021-27138.fit` they build from the signed seed |
+| `pins/cve-2026-46728-{pre,fix}.txt` | the CVE-2026-46728 fix commit and its parent: SHA-256-pinned forge snapshots, `version:` the commit SHA |
+| `regress/` | `cve-2021-27138.its` (the unsigned `kernel@1` donor), `graft_node.py`, `make_cve_2021_27138.sh`, and the committed input `cve-2021-27138.fit` they build from the signed seed; `clone_images.py` and `check_cve_2026_46728.sh`, the CVE-2026-46728 regression |
 
 ## Build
 
@@ -183,6 +184,27 @@ fuzz target aborts with `UBOOT_FIT_ORACLE: verified!=booted` after bootm's looku
 the digest: here the oracle catches a bypass that a real U-Boot loaded. The input is a public n-day,
 so it is committed. v2021.01 predates `test/fuzz/`, so it is a plain sandbox build with
 `pins/v2021.01.patch`; `kernel@1` says `arch = "sandbox"`, the only one that sandbox loads.
+
+## CVE-2026-46728 regression
+
+A second public bypass, on trees with `test/fuzz/` (sources and analysis:
+[`regressions/CVE-2026-46728.md`](regressions/CVE-2026-46728.md)). Before `2092322b31cc` (first in
+v2026.04), `fit_config_check_sig()` hashed the nodes named by the signature's own `hashed-nodes`,
+which the signature does not cover. `regress/clone_images.py` makes upstream's "clone" input from
+the signed seed, with no key: a byte-for-byte copy of `/images` at `/images/images` (padded with
+upstream's empty `EMPTYNO` nodes), other bytes (with a matching hash) at `/images/kernel`, and
+`hashed-nodes` pointed at the copies.
+`regress/check_cve_2026_46728.sh` builds the real-crypto target at the fix's parent and at the fix
+(`pins/cve-2026-46728-{pre,fix}.txt`: `build.sh` also takes a full commit SHA as `version:`) and at
+the pin, then asserts with `confirm.sh` that the signed seed verifies on all three, that the oracle
+fires on the input at `fix^` (the `UBOOT_FIT_ORACLE` marker), and that `fit_config_verify()`
+rejects it at the fix and on 2026.07. The CI job `cve-2026-46728` runs it. The input is made at
+run time into `build/regress-cve-2026-46728/` and is not committed.
+
+```bash
+fuzz/uboot-fit/regress/check_cve_2026_46728.sh              # builds the pin, fix^ and fix into build/
+fuzz/uboot-fit/regress/check_cve_2026_46728.sh --no-build   # reuses those builds
+```
 
 ## Regenerating the signed seed
 
