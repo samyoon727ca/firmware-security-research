@@ -1,0 +1,57 @@
+FUZZING ONLY. Applied by build.sh --crypto-stub (patch -p1 in the stub tree
+<out>/stub-src/u-boot-<ver>, never in <out>/src) and compiled only with
+-DFUZZ_CRYPTO_STUB. stub.sh names the symbol and banner CI looks for.
+
+--- a/lib/rsa/rsa-verify.c
++++ b/lib/rsa/rsa-verify.c
+@@ -25,6 +25,39 @@
+ /* Default public exponent for backward compatibility */
+ #define RSA_DEFAULT_PUBEXP	65537
+ 
++#if defined(FUZZ_CRYPTO_STUB) && !defined(USE_HOSTCC)
++/*
++ * FUZZING ONLY (fuzz/uboot-fit/build.sh --crypto-stub). rsa_verify_key() skips
++ * the RSA maths and accepts only if the digest of the signed regions equals
++ * FUZZ_CRYPTO_STUB_DIGEST (hex), the one the committed seed's signature covers.
++ */
++#include <hexdump.h>
++#include <os.h>
++#include <u-boot/sha256.h>
++
++#define FUZZ_CRYPTO_STUB_STR(x)		#x
++#define FUZZ_CRYPTO_STUB_XSTR(x)	FUZZ_CRYPTO_STUB_STR(x)
++
++const char fuzz_crypto_stub_banner[] =
++	"\n*** UBOOT_FIT_CRYPTO_STUB: RSA verification is STUBBED in this binary ***\n"
++	"*** Fuzzing only; confirm every hit with fuzz/uboot-fit/confirm.sh   ***\n\n";
++
++static void __attribute__((constructor)) fuzz_crypto_stub_announce(void)
++{
++	os_write(2, fuzz_crypto_stub_banner, sizeof(fuzz_crypto_stub_banner) - 1);
++}
++
++int fuzz_crypto_stub_verify(const uint8_t *hash, int hash_len)
++{
++	char hex[2 * SHA256_SUM_LEN + 1] = "";
++
++	if (hash_len == SHA256_SUM_LEN)
++		*bin2hex(hex, hash, hash_len) = '\0';
++
++	return strcmp(hex, FUZZ_CRYPTO_STUB_XSTR(FUZZ_CRYPTO_STUB_DIGEST)) ? -EACCES : 0;
++}
++#endif
++
+ /**
+  * rsa_verify_padding() - Verify RSA message padding is valid
+  *
+@@ -350,6 +383,10 @@
+ 		      RSA_MAX_SIG_BITS / 8);
+ 		return -EINVAL;
+ 	}
++
++#if defined(FUZZ_CRYPTO_STUB) && !defined(USE_HOSTCC)
++	return fuzz_crypto_stub_verify(hash, checksum->checksum_len);
++#endif
+ 
+ 	uint8_t buf[sig_len];
+ 	hash_len = checksum->checksum_len;

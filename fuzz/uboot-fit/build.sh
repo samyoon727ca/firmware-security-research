@@ -2,7 +2,7 @@
 # Build the U-Boot sandbox as a libFuzzer + ASan binary carrying the FIT
 # format-check fuzz target (fit_fuzz.c).
 #
-# Usage: build.sh [--version-file pin.txt] [--out build/]
+# Usage: build.sh [--version-file pin.txt] [--out build/] [--crypto-stub]
 #
 #   --version-file  U-Boot pin: version, url, sha256, optional mirrors and
 #                   source_date_epoch (default: pin.txt next to this script)
@@ -10,6 +10,9 @@
 #                   this script). Must be new, empty, or an earlier build.sh
 #                   output (it holds a .uboot-fit-build marker), because the
 #                   script deletes and recreates its src/ and sandbox/.
+#   --crypto-stub   FUZZING ONLY: build the stubbed-RSA variant instead, in
+#                   <out>/stub-src and <out>/stub-sandbox (crypto-stub.patch,
+#                   -DFUZZ_CRYPTO_STUB). See README.md; confirm hits with confirm.sh.
 #
 # Steps: download the pinned tarball and refuse it unless its SHA-256 matches;
 # unpack it into <out>/src; copy fit_fuzz.c into the tree's test/fuzz/; build
@@ -23,6 +26,8 @@ PIN=$HERE/pin.txt
 OUT=$HERE/build
 JOBS=${JOBS:-$(nproc 2>/dev/null || echo 2)}
 CC=${CC:-clang}
+STUB=0 P=  # --crypto-stub: STUB=1 P=stub-
+. "$HERE/stub.sh"
 
 die() { echo "build.sh: $*" >&2; exit 1; }
 usage() { sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; }
@@ -31,6 +36,7 @@ while (( $# )); do
   case $1 in
     --version-file) [[ $# -ge 2 ]] || die "$1 needs a file"; PIN=$2; shift 2 ;;
     --out)          [[ $# -ge 2 ]] || die "$1 needs a directory"; OUT=$2; shift 2 ;;
+    --crypto-stub)  STUB=1 P=stub-; shift ;;
     -h|--help)      usage; exit 0 ;;
     *)              die "unknown argument: $1 (see --help)" ;;
   esac
@@ -47,9 +53,9 @@ if [[ -e $OUT ]]; then
 fi
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
-echo "build tree of fuzz/uboot-fit/build.sh; its src/, sandbox/ and replay/ are rebuilt on each run" > "$OUT/$MARKER"
+echo "build tree of fuzz/uboot-fit/build.sh; its src/, sandbox/, stub-*/ and replay/ are rebuilt on each run" > "$OUT/$MARKER"
 
-for tool in curl sha256sum tar bzip2 make "$CC"; do
+for tool in curl sha256sum tar bzip2 make nm "$CC" ${P:+patch}; do
   command -v "$tool" >/dev/null || die "missing tool: $tool"
 done
 
@@ -91,9 +97,10 @@ TAR=$(basename "${URLS[0]}")
 TAR=$DL/$TAR
 fetch "$SHA" "$TAR" "${URLS[@]}"
 
-SRC=$OUT/src/u-boot-${VER#v}
-rm -rf "$OUT/src" && mkdir -p "$OUT/src"
-tar -xf "$TAR" -C "$OUT/src"
+# The stub variant gets its own source and object trees: its patch never reaches src/ or sandbox/.
+SRC=$OUT/${P}src/u-boot-${VER#v}
+rm -rf "$OUT/${P}src" && mkdir -p "$OUT/${P}src"
+tar -xf "$TAR" -C "$OUT/${P}src"
 [[ -f $SRC/Makefile ]] || die "tarball did not unpack to $SRC"
 
 # --- Patch the fuzz target into U-Boot's own fuzz directory -------------------
@@ -107,9 +114,17 @@ if [[ -n $(pin source_date_epoch) ]]; then
   SOURCE_DATE_EPOCH=$(pin source_date_epoch)
   export SOURCE_DATE_EPOCH
 fi
-B=$OUT/sandbox
+B=$OUT/${P}sandbox
 rm -rf "$B"
 MK=(make -s -C "$SRC" O="$B" CC="$CC")
+if (( STUB )); then
+  # The RSA stub, and the one digest it accepts (compiled in): the one the committed seed's signature covers.
+  patch -s -p1 --forward --fuzz=0 --no-backup-if-mismatch -d "$SRC" -i "$HERE/crypto-stub.patch" \
+    || die "crypto-stub.patch does not apply to U-Boot $VER"
+  digest=$(< "$HERE/replay/p2-signed.regions.sha256")
+  [[ $digest =~ ^[0-9a-f]{64}$ ]] || die "replay/p2-signed.regions.sha256 holds no SHA-256 (run make_seed.sh)"
+  MK+=("KCFLAGS=-DFUZZ_CRYPTO_STUB -DFUZZ_CRYPTO_STUB_DIGEST=$digest")
+fi
 "${MK[@]}" sandbox_defconfig
 "$SRC/scripts/kconfig/merge_config.sh" -m -O "$B" "$B/.config" "$HERE/fuzz.config" >/dev/null
 "${MK[@]}" olddefconfig
@@ -136,10 +151,13 @@ ulimit -n "$(ulimit -Hn)" 2>/dev/null || true
 syms=$(nm "$B/u-boot")
 for sym in LLVMFuzzerTestOneInput __asan_init fuzz_fit_check_format fuzz_fit_check_format_accept \
            fuzz_fit_config_verify_check fuzz_fit_oracle_hook_check fit_check_format \
-           fit_config_verify fit_image_load; do
+           fit_config_verify fit_image_load fuzz_fit_confirm; do
   grep -qE "[[:space:]]$sym\$" <<< "$syms" || die "u-boot does not define $sym"
 done
 [[ -f $B/arch/sandbox/dts/test.dtb ]] || die "no test.dtb (the fuzzing-engine device lives in it)"
+# Both stub marks in the stub build (else this check proves nothing), none in the default one.
+marks=$(stub_marks "$B/u-boot")
+(( marks == 2 * STUB )) || die "$B/u-boot carries $marks of the 2 crypto-stub marks (want $((2 * STUB)))"
 
 # What produced this build; ci-replay.sh takes source_date_epoch from here.
 {
@@ -147,4 +165,4 @@ done
   echo "source_date_epoch ${SOURCE_DATE_EPOCH:-}"
   "$CC" --version | head -n 1
 } > "$B/toolchain.txt"
-echo "built $B/u-boot (U-Boot $VER, $(head -n 1 < <("$CC" --version)))"
+echo "built $B/u-boot (U-Boot $VER, $(head -n 1 < <("$CC" --version)))${P:+, RSA check STUBBED}"

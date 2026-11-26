@@ -355,6 +355,17 @@ static int fuzz_fit_config_verify_check(const uint8_t *data, size_t size)
 	fit_fuzz_buf[off] ^= 0x01;
 	if (!fit_fuzz_config_verify(fit_fuzz_buf))
 		fit_fuzz_fail("fit_config_verify() accepted a flipped hash value", 0);
+	fit_fuzz_buf[off] ^= 0x01;
+
+	/* One signature byte: real RSA must reject it, the stub accept it. A pass leaves a line open. */
+	ret = fdt_subnode_offset(fit_fuzz_buf, fit_conf_get_node(fit_fuzz_buf, NULL),
+				 FIT_SIG_NODENAME);
+	value = ret < 0 ? NULL : fdt_getprop(fit_fuzz_buf, ret, FIT_VALUE_PROP, &vlen);
+	if (!value || vlen <= 0)
+		fit_fuzz_fail("default configuration has no signature value", ret);
+	fit_fuzz_buf[value - fit_fuzz_buf + vlen / 2] ^= 0x01;
+	printf("\nfit_fuzz: signature byte flipped: %s by fit_config_verify()\n",
+	       fit_fuzz_config_verify(fit_fuzz_buf) ? "rejected" : "accepted");
 	printf("fit_fuzz: %zu-byte signed seed verifies; kernel tampering rejected\n",
 	       size);
 	printf("fit_fuzz: oracle: bootm loads the signed kernel; quiet on the seed\n");
@@ -397,3 +408,35 @@ static int fuzz_fit_oracle_hook_check(const uint8_t *data, size_t size)
 	return 0;
 }
 FUZZ_TEST(fuzz_fit_oracle_hook_check, 0);
+
+/*
+ * Verdict for confirm.sh, not a fuzz target: the fuzz target's path on one
+ * input plus a line saying how far it got. confirm.sh runs it only on the
+ * real-crypto build, so "verified" means fit_config_verify() with real RSA.
+ */
+static int fuzz_fit_confirm(const uint8_t *data, size_t size)
+{
+	const u8 *want = fit_fuzz_signed_digest();
+	const char *step = "fit_check_format()";
+	int ret;
+
+	if (!fit_fuzz_load(data, size)) {
+		printf("\nfit_fuzz: confirm: rejected by the size check (%zu bytes)\n", size);
+		return 0;
+	}
+	ret = fit_check_format(fit_fuzz_buf, size);
+	if (!ret) {
+		step = "fit_config_verify()";
+		ret = fit_fuzz_config_verify(fit_fuzz_buf);
+	}
+	if (ret) {
+		printf("\nfit_fuzz: confirm: rejected by %s (%d)\n", step, ret);
+		return 0;
+	}
+	ret = fit_fuzz_oracle(fit_fuzz_buf, want);
+	printf("\nfit_fuzz: confirm: verified by fit_config_verify(); bootm %s\n",
+	       ret ? "would not load the kernel" : "loads the signed kernel");
+
+	return 0;
+}
+FUZZ_TEST(fuzz_fit_confirm, 0);
