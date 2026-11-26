@@ -141,7 +141,8 @@ four live Track 1 runs are recorded. Per-deliverable status is in
   [`docs/track2/uas-capstone-assessment.md`](docs/track2/uas-capstone-assessment.md).
 - **U-Boot FIT parser fuzz target (P7.4, Phase 0)** — the pinned v2026.07 sandbox builds with
   libFuzzer + ASan and links a `fit_check_format()` target, then `fit_config_verify()` and a
-  verified-equals-booted oracle on bootm's kernel lookup; CI replays the committed seeds, no
+  verified-equals-booted oracle on bootm's kernel lookup; CI replays the committed seeds and two
+  n-day regressions (the oracle fires on CVE-2021-27138 and CVE-2026-46728 before their fixes), no
   campaign yet: [`fuzz/uboot-fit/`](fuzz/uboot-fit/README.md).
 - **Track 1 — three router runs, method proven end-to-end (each finding deduped as an n-day):**
   - **Run 1 — DIR-816L Rev B (D-Link, RTL819x MIPS-BE):** funnel exercised end-to-end
