@@ -178,11 +178,11 @@ hashes `hashed-nodes` by exact path. `regress/make_cve_2021_27138.sh` puts an un
 (from `regress/cve-2021-27138.its`) in front of the signed `kernel` in a copy of the signed
 seed, changing no signed byte and needing no key. `ci-replay.sh` asserts that on v2021.01 the
 fuzz target aborts with `UBOOT_FIT_ORACLE: verified!=booted` after bootm's lookup loads
-`kernel@1`, and that on the pin the same input stays quiet (`fit_check_format()` rejects
-the `@`). This matters because a quiet oracle proves nothing by itself and the test hook only swaps
-the digest: here the oracle catches a bypass that a real U-Boot loaded. The input is a public
-n-day, so it is committed. v2021.01 predates `test/fuzz/`, so it is a plain sandbox build with
-`pins/v2021.01.patch`, and `kernel@1` says `arch = "sandbox"`, the only one that sandbox loads.
+`kernel@1`, and that on the pin `confirm.sh` reports the same input rejected by `fit_check_format()`
+(the `@`). This matters because a quiet oracle proves nothing by itself and the test hook only swaps
+the digest: here the oracle catches a bypass that a real U-Boot loaded. The input is a public n-day,
+so it is committed. v2021.01 predates `test/fuzz/`, so it is a plain sandbox build with
+`pins/v2021.01.patch`; `kernel@1` says `arch = "sandbox"`, the only one that sandbox loads.
 
 ## Regenerating the signed seed
 
@@ -214,10 +214,8 @@ release key.
 - **`--out` safety.** `build.sh` deletes and recreates `<out>/src` and `<out>/sandbox` (`stub-*` with `--crypto-stub`), and
   `ci-replay.sh` recreates `<out>/replay` and `<out>/signed`, so both refuse an `--out` that is
   not new, empty, or marked with the `.uboot-fit-build` file `build.sh` writes there.
-- **Older releases.** Trees from before roughly 2022 have no `test/fuzz/` `FUZZ_TEST`
-  mechanism, and their `fit_check_format()` takes no size argument. A pin can name a glue
-  `patch:` and a `config:` fragment (see `pins/v2021.01.txt`). Without them `build.sh` stops with a
-  clear error.
+- **Older releases.** Trees from before roughly 2022 have no `test/fuzz/` and a `fit_check_format()`
+  without a size argument: their pin names a glue `patch:` and `config:` (`pins/v2021.01.txt`).
 - **Pin.** `pin.txt` was checked against `cc/uboot/pin.txt` in `uas-sec-p2-verified-boot`: the
   version, URL, SHA-256, mirrors, commit and `SOURCE_DATE_EPOCH` all match.
 - Every crash is a **candidate**, not a finding: minimize, root-cause in source, and run the

@@ -43,9 +43,7 @@ pin() { awk -v k="$1:" '$1 == k {print $2}' "$PIN"; }
 want="u-boot $(pin version) sha256 $(pin sha256)"
 have=$(head -n 1 "$B/toolchain.txt")
 [[ $have == "$want" ]] || die "$B was built from '$have', not '$want' ($PIN)"
-for t in tools/mkimage scripts/dtc/dtc; do
-  [[ -x $B/$t ]] || die "no $B/$t in the build"
-done
+for t in tools/mkimage scripts/dtc/dtc; do [[ -x $B/$t ]] || die "no $B/$t in the build"; done
 command -v python3 >/dev/null || die "missing tool: python3"
 
 W=$(mktemp -d)

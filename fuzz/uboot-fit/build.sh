@@ -58,7 +58,7 @@ mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
 echo "build tree of fuzz/uboot-fit/build.sh; its src/, sandbox/, stub-*/ and replay/ are rebuilt on each run" > "$OUT/$MARKER"
 
-for tool in curl sha256sum tar bzip2 make nm patch "$CC"; do
+for tool in curl sha256sum tar bzip2 make nm "$CC" ${P:+patch}; do
   command -v "$tool" >/dev/null || die "missing tool: $tool"
 done
 
@@ -75,6 +75,7 @@ GLUE=$(pin patch) CFG=$(pin config)
 for f in $GLUE $CFG; do
   [[ $f =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ && -f $PIN_DIR/$f ]] || die "bad patch/config in $PIN: '$f'"
 done
+[[ -z $GLUE ]] || command -v patch >/dev/null || die "missing tool: patch"  # for the glue
 GLUE=${GLUE:+$PIN_DIR/$GLUE} CFG=${CFG:+$PIN_DIR/$CFG} CFG=${CFG:-$HERE/fuzz.config}
 
 fetch() { # sha256 dest url [mirror...]

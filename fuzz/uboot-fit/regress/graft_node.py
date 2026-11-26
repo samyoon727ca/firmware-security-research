@@ -74,8 +74,12 @@ def main(seed_file, donor_file, path, out_file):
     def up(p):
         return p.rsplit("/", 1)[0] or "/"
 
+    if (seed[off_st + size_st:off_str] + seed[off_str + size_str:]).strip(b"\0"):  # would be dropped
+        sys.exit("graft_node.py: %s has data outside its struct and strings blocks" % seed_file)
     at = None  # after the parent's properties, before its first subnode
-    for tok, start, _, p, _, _ in tokens(seed):
+    for tok, start, _, p, name, _ in tokens(seed):
+        if tok == PROP and name in ("data-offset", "data-position"):
+            sys.exit("graft_node.py: %s has external data (%s); not supported" % (seed_file, name))
         if tok == BEGIN and p == path:
             sys.exit("graft_node.py: %s already has %s" % (seed_file, path))
         if at is None and ((tok == BEGIN and p != up(path) and up(p) == up(path))

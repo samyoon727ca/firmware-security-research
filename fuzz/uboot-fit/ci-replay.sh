@@ -31,7 +31,7 @@
 # <out>/stub-sandbox (same pin; both stub.sh marks, the real build neither, in binary or log) then
 # replays the seeds through the target, the accept check, the signed seed check (a flipped signature
 # byte must pass) and the oracle hook; confirm.sh must call the signed seed verified, minimal.itb rejected.
-# Then regress/cve-2021-27138.fit (a public n-day) must not fire on the pin,
+# Then regress/cve-2021-27138.fit (a public n-day) must not fire on the pin (confirm.sh: rejected by fit_check_format()),
 # and must fire on v2021.01 (pins/v2021.01.txt, built into <out>/v2021.01).
 #
 # The full libFuzzer/ASan log goes to <out>/results/ and is printed only
@@ -214,12 +214,14 @@ mapfile -t verdicts < <(grep -E '^(crash|timeout|verified|rejected) ' <<< "$out"
 # --- CVE-2021-27138 regression ---------------------------------------------------
 B=$OUT/sandbox L=  # the real-crypto build again
 # The oracle's positive control (README). On the pin, fit_check_format() rejects
-# the '@' node and the target stays quiet: an abort fails the replay.
+# the '@' node (confirm.sh must say so) and the target stays quiet: an abort fails the replay.
 REG=$HERE/regress/cve-2021-27138.fit
 G=$OUT/regress
 rm -rf "$G" && mkdir -p "$G" && cp "$REG" "$G/"
 replay fuzz_fit_check_format "$G" 1
-echo "CVE-2021-27138 input: the oracle stays quiet on U-Boot $(pin version)"
+grep -qE '^rejected .*\(by fit_check_format\(\) ' <(bash "$HERE/confirm.sh" --version-file "$PIN" --out "$OUT" "$REG") \
+  || die "confirm.sh did not report the CVE-2021-27138 input rejected by fit_check_format()"
+echo "CVE-2021-27138 input: rejected by fit_check_format(); the oracle stays quiet on U-Boot $(pin version)"
 
 # On v2021.01 it must fire. That tree has no libFuzzer: the glue's "fuzz"
 # command runs the same target once on the file, from the run directory.
