@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CI gate for the U-Boot FIT fuzz target: build it, then replay the committed
+# CI gate for the U-Boot FIT fuzz target: build both variants, then replay the committed
 # seeds through it once each. REPLAY ONLY — libFuzzer runs with -runs=0, so it
 # executes the inputs it is given and never mutates them. Any sanitizer report
 # or crash on a seed fails the job.
@@ -7,7 +7,7 @@
 # Usage: ci-replay.sh [--version-file pin.txt] [--out build/] [--no-build]
 #
 #   --version-file, --out  passed to build.sh (same defaults)
-#   --no-build             reuse an existing <out>/sandbox/u-boot
+#   --no-build             reuse existing <out>/sandbox and <out>/stub-sandbox
 #
 # Either way the binary must come from the --version-file pin: its version and
 # SHA-256 are checked against <out>/sandbox/toolchain.txt before any replay.
@@ -28,6 +28,9 @@
 # signed kernel through bootm's lookup and stays quiet. Last,
 # fuzz_fit_oracle_hook_check runs the oracle with its expected digest swapped
 # (a test-only hook): it must fire, i.e. abort with the UBOOT_FIT_ORACLE marker.
+# <out>/stub-sandbox (same pin; both stub.sh marks, the real build neither, in binary or log) then
+# replays the seeds through the target, the accept check, the signed seed check (a flipped signature
+# byte must pass) and the oracle hook; confirm.sh must call the signed seed verified, minimal.itb rejected.
 # Then regress/cve-2021-27138.fit (a public n-day) must not fire on the pin,
 # and must fire on v2021.01 (pins/v2021.01.txt, built into <out>/v2021.01).
 #
@@ -40,6 +43,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 PIN=$HERE/pin.txt
 OUT=$HERE/build
 BUILD=1
+. "$HERE/stub.sh"
 
 die() { echo "ci-replay.sh: $*" >&2; exit 1; }
 in_ci() { [[ -n ${CI:-} || -n ${GITHUB_ACTIONS:-} ]]; }
@@ -57,6 +61,7 @@ done
 if (( BUILD )); then
   # build.sh refuses an --out it did not create, and marks the one it uses.
   bash "$HERE/build.sh" --version-file "$PIN" --out "$OUT"
+  bash "$HERE/build.sh" --version-file "$PIN" --out "$OUT" --crypto-stub
 fi
 # <out>/replay is deleted and recreated below: only touch a build.sh output.
 [[ -f $OUT/.uboot-fit-build ]] || die "$OUT is not a build.sh output (no .uboot-fit-build marker)"
@@ -71,6 +76,11 @@ want="u-boot $(pin version) sha256 $(pin sha256)"
 have=$(head -n 1 "$B/toolchain.txt")
 [[ $have == "$want" ]] \
   || die "$B/u-boot was built from '$have', not '$want' ($PIN); rebuild it (drop --no-build)"
+[[ -x $OUT/stub-sandbox/u-boot && $(head -n 1 "$OUT/stub-sandbox/toolchain.txt" 2>/dev/null) == "$want" ]] \
+  || die "no $OUT/stub-sandbox/u-boot built from '$want' ($PIN); run build.sh --crypto-stub"
+(( $(stub_marks "$B/u-boot") == 0 )) || die "the real-crypto build $B/u-boot carries a crypto-stub mark"
+(( $(stub_marks "$OUT/stub-sandbox/u-boot") == 2 )) || die "the stub build lacks a crypto-stub mark, so the check above proves nothing"
+echo "real-crypto build: no crypto-stub symbol or banner; stub build: both"
 
 # --- Seeds ----------------------------------------------------------------------
 R=$OUT/replay
@@ -80,6 +90,7 @@ rm -rf "$R" "$S" && mkdir -p "$R" "$S"
 cp "$HERE/replay/control-dev.dtb" "$B/control-dev.dtb"
 [[ -f $HERE/replay/p2-signed.kernel.sha256 ]] || die "no replay/p2-signed.kernel.sha256 (run make_seed.sh)"
 cp "$HERE/replay/p2-signed.kernel.sha256" "$B/p2-signed.kernel.sha256"
+cp "$HERE"/replay/{control-dev.dtb,p2-signed.kernel.sha256} "$OUT/stub-sandbox/"
 epoch=$(sed -n 's/^source_date_epoch //p' "$B/toolchain.txt")
 shopt -s nullglob
 for f in "$HERE"/replay/*; do
@@ -108,8 +119,9 @@ signed=("$S"/*)
 # the fuzzing-engine device) relative to the working directory, hence the cd.
 # Logs and artefacts from a failing seed go to <out>/results/, which stays local.
 mkdir -p "$OUT/results"
+L=  # log and artefact name prefix: "stub-" while $B is the stub build
 run() { # fuzz test, seed dir, artefact name prefix: run every seed through it once, with -runs=0
-  local log=$OUT/results/$1.log rc
+  local log=$OUT/results/$L$1.log rc
   # -detect_leaks=0: LeakSanitizer is off here (ASAN_OPTIONS), so libFuzzer's
   # own leak check cannot report anything. It would only run an input a second
   # time when that input allocated more than it freed, as the first one through
@@ -118,17 +130,20 @@ run() { # fuzz test, seed dir, artefact name prefix: run every seed through it o
   set +e
   ( cd "$B" && UBOOT_SB_FUZZ_TEST=$1 \
       ASAN_OPTIONS=${ASAN_OPTIONS:-abort_on_error=1:detect_leaks=0} \
-      ./u-boot -runs=0 -detect_leaks=0 -artifact_prefix="$OUT/results/$3" "$2" ) > "$log" 2>&1
+      ./u-boot -runs=0 -detect_leaks=0 -artifact_prefix="$OUT/results/$L$3" "$2" ) > "$log" 2>&1
   rc=$?
   set -e
+  # The stub announces itself at startup; the real-crypto build never may.
+  if grep -qF "$STUB_BANNER" "$log"; then [[ -n $L ]]; else [[ -z $L ]]; fi \
+    || die "$L$1: the crypto-stub banner is missing from a stub run, or in a real-crypto run"
   # The log can hold a sanitizer stack trace and the Base64 of a crashing
   # input, so under CI it stays in results/ and only counts are printed.
   if ! in_ci; then cat "$log"; fi
   return "$rc"
 }
 replay() { # fuzz test, seed dir, seed count: run every seed through it once; none may fail
-  local name=$1 dir=$2 n=$3 log=$OUT/results/$1.log rc=0 runs
-  run "$name" "$dir" "" || rc=$?
+  local name=$L$1 dir=$2 n=$3 log=$OUT/results/$L$1.log rc=0 runs
+  run "$1" "$dir" "" || rc=$?
   if (( rc != 0 )); then
     if in_ci; then
       die "$name: replay failed (exit $rc); full log kept locally in results/ (not printed under CI)"
@@ -155,6 +170,8 @@ ok=$(grep -c '^fit_fuzz: [0-9]*-byte signed seed verifies; kernel tampering reje
 (( ok >= ${#signed[@]} )) || die "fuzz_fit_config_verify_check: only $ok of ${#signed[@]} signed seed(s) reported a pass"
 ok=$(grep -c '^fit_fuzz: oracle: bootm loads the signed kernel; quiet on the seed' "$log" || true)
 (( ok >= ${#signed[@]} )) || die "fuzz_fit_config_verify_check: the oracle passed on only $ok of ${#signed[@]} signed seed(s)"
+(( $(grep -c '^fit_fuzz: signature byte flipped: rejected' "$log" || true) >= ${#signed[@]} )) \
+  || die "fuzz_fit_config_verify_check: real crypto accepted a flipped signature byte"
 echo "${#signed[@]} signed seed(s) verify against control-dev.dtb; tampered copies rejected; oracle quiet"
 
 # The oracle test hook must fire: the run aborts at the oracle, with the marker,
@@ -171,7 +188,31 @@ grep -q '^fit_fuzz: oracle test hook: expected digest swapped' "$log" \
   || die "$name: exit $rc, but not at the oracle; full log kept locally in results/ (not printed under CI)"
 echo "oracle test hook: the oracle fires when the expected digest is swapped (exit $rc, as intended)"
 
+# The crypto-stub build (the one campaigns run): no crash on any seed, all accepted; the signed seed check passes
+# (stub digest: p2-signed.regions.sha256) and accepts a flipped signature byte; the oracle hook fires.
+B=$OUT/stub-sandbox L=stub-
+replay fuzz_fit_check_format "$R" ${#seeds[@]}
+replay fuzz_fit_check_format_accept "$R" ${#seeds[@]}
+replay fuzz_fit_config_verify_check "$S" ${#signed[@]}
+(( $(grep -c '^fit_fuzz: signature byte flipped: accepted' "$OUT/results/stub-fuzz_fit_config_verify_check.log" || true) >= ${#signed[@]} )) \
+  || die "stub build: a flipped signature byte was rejected, so the RSA stub is not in effect"
+log=$OUT/results/$L$name.log rc=0
+run "$name" "$S" oracle-hook- || rc=$?
+(( rc != 0 )) && grep -q '^fit_fuzz: oracle test hook: expected digest swapped' "$log" \
+  && grep -q '^UBOOT_FIT_ORACLE: verified!=booted' "$log" && ! grep -q '^fit_fuzz: signed seed check failed' "$log" \
+  || die "$L$name: exit $rc, but the oracle did not fire; full log kept locally in results/ (not printed under CI)"
+echo "stub build: ${#seeds[@]} seed(s) replayed, no crash, all accepted; signed seed verifies, tampered copies rejected, flipped signature byte accepted; oracle test hook fires"
+
+# confirm.sh on the real-crypto build: the signed seed verifies, minimal.itb
+# (no signature for the required key) is rejected.
+out=$(bash "$HERE/confirm.sh" --version-file "$PIN" --out "$OUT" "${signed[0]}" "$R/minimal.itb")
+echo "$out"  # this run's verdicts: <out>/results/confirm.txt also holds earlier runs'
+mapfile -t verdicts < <(grep -E '^(crash|timeout|verified|rejected) ' <<< "$out")
+[[ ${#verdicts[@]} == 2 && ${verdicts[0]} == "verified "* && ${verdicts[1]} == "rejected "* ]] \
+  || die "confirm.sh did not report the signed seed verified and minimal.itb rejected"
+
 # --- CVE-2021-27138 regression ---------------------------------------------------
+B=$OUT/sandbox L=  # the real-crypto build again
 # The oracle's positive control (README). On the pin, fit_check_format() rejects
 # the '@' node and the target stays quiet: an abort fails the replay.
 REG=$HERE/regress/cve-2021-27138.fit
