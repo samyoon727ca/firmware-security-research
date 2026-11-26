@@ -68,12 +68,17 @@ Three side pipelines sit next to the funnel:
 - **MAVLink signing crate** (`tools/mavlink-signing/src/lib.rs`): Rust sign/verify/anti-replay,
   the control the capstone recommends; design in `tools/mavlink-signing/SPEC.md`.
 - **U-Boot FIT fuzz target** (`fuzz/uboot-fit/`): `build.sh` downloads the pinned tarball,
-  checks its SHA-256 and fails closed (`fuzz/uboot-fit/build.sh:66`), then builds the U-Boot
+  checks its SHA-256 and fails closed (`fuzz/uboot-fit/build.sh:89`), then builds the U-Boot
   sandbox with libFuzzer + ASan (AddressSanitizer) and links `fit_fuzz.c`. The target runs
   `fit_check_format()`, then `fit_config_verify()`, then a "verified-equals-booted" oracle that
   aborts with a marker line if bootm would load a kernel other than the signed one
-  (`fuzz/uboot-fit/fit_fuzz.c:216`). `ci-replay.sh` replays the committed seeds. Details:
-  [`../fuzz/uboot-fit/README.md`](../fuzz/uboot-fit/README.md).
+  (`fuzz/uboot-fit/fit_fuzz.c:216`). `ci-replay.sh` replays the committed seeds. Because real
+  RSA on every input slows fuzzing, `build.sh --crypto-stub` builds a second, opt-in variant in
+  its own tree whose RSA check only compares the signed-region digest
+  (`fuzz/uboot-fit/crypto-stub.patch`); a stub binary carries a symbol and a startup banner
+  (`fuzz/uboot-fit/stub.sh`). `confirm.sh` replays inputs on the real-crypto build only and
+  records a verdict for each; `bench.sh` measures exec/s of both variants, locally only.
+  Details: [`../fuzz/uboot-fit/README.md`](../fuzz/uboot-fit/README.md).
 
 ## Code map
 
@@ -90,7 +95,7 @@ Three side pipelines sit next to the funnel:
 | `tools/embargo-guard.sh`, `tools/install-hooks.sh` | Git hooks that keep pre-disclosure material out of this public repo |
 | `tools/mavlink-sectest/` | MAVLink SITL test harness |
 | `tools/mavlink-signing/` | Rust MAVLink v2 signing crate and its spec |
-| `fuzz/uboot-fit/` | U-Boot FIT parser fuzz target, pin, seeds, CI replay, CVE-2026-46728 regression notes |
+| `fuzz/uboot-fit/` | U-Boot FIT parser fuzz target, pin, seeds, crypto-stub patch, CI replay, `confirm.sh`/`bench.sh`, CVE-2026-46728 regression notes |
 | `research/dlink-rtl819x/`, `research/zyxel-cpe/`, `research/draytek-vigor/` | Track 1 router runs 1 to 3: logs, hashes, Ghidra scripts, finding paperwork |
 | `research/uas-autonomy/` | Run 4: Micro-XRCE-DDS Agent scope, fuzz harnesses (`ucdr_fuzz`, `agent_fuzz`, `xrce_probe`) and results |
 | `writeups/` | Published case studies (both deduped as n-days) |
@@ -128,7 +133,12 @@ The fuzz target (Linux, clang with libFuzzer; package list in
 ```bash
 fuzz/uboot-fit/ci-replay.sh              # build from pin.txt, then replay the seeds
 fuzz/uboot-fit/ci-replay.sh --no-build   # replay against an existing build/
+fuzz/uboot-fit/build.sh --crypto-stub    # the stubbed-RSA variant, for fuzzing only
+fuzz/uboot-fit/confirm.sh <input>...     # verdict per input on the real-crypto build
+fuzz/uboot-fit/bench.sh [--seconds 60]   # exec/s of both variants; refuses to run under CI
 ```
+
+`ci-replay.sh` builds both variants before replaying (`fuzz/uboot-fit/ci-replay.sh:61`).
 
 CI runs this in `uboot-fit.yml` only when `fuzz/uboot-fit/**` or that workflow changes. It
 needs network access to fetch the U-Boot tarball.
@@ -173,8 +183,13 @@ What `tools/run-checks.sh` checks, in CI on every pull request and on `main`:
 What `uboot-fit.yml` checks: the pinned sandbox builds and links the target; the seeds replay
 with no sanitizer report; they pass `fit_check_format()`; the signed seed passes
 `fit_config_verify()` while two tampered copies are rejected; and the oracle's test hook must
-fire (`fuzz/uboot-fit/fit_fuzz.c:235`, `:264`, `:364`, `:399`; driver
-`fuzz/uboot-fit/ci-replay.sh`). Replay only, with `-runs=0`: no fuzzing happens in CI.
+fire (`fuzz/uboot-fit/fit_fuzz.c:235`, `:264`, `:375`, `:410`; driver
+`fuzz/uboot-fit/ci-replay.sh`). It also checks that the real build rejects a flipped signature
+byte and carries neither stub mark, that the stub build carries both, replays the seeds through
+it and must see it accept the flipped signature byte (`fuzz/uboot-fit/ci-replay.sh:79`,
+`:195`), and that `confirm.sh` calls the signed seed verified and `minimal.itb` rejected
+(`fuzz/uboot-fit/ci-replay.sh:206`). Replay only, with `-runs=0`: no fuzzing happens in CI,
+and `bench.sh` is never run there.
 
 Not tested, or only documented:
 
@@ -202,11 +217,16 @@ Not tested, or only documented:
   judgment ([`disclosure-policy.md`](disclosure-policy.md), roadmap "Working rules").
 - **Fuzz results stay local.** Crashes, corpora, `results/` and the dev signing key are
   git-ignored (`fuzz/uboot-fit/.gitignore`); under CI, `ci-replay.sh` prints only counts or the
-  failing test name, never a log (`fuzz/uboot-fit/ci-replay.sh:33`).
+  failing test name, never a log (`fuzz/uboot-fit/ci-replay.sh:139`).
 - **Pinned and reproducible.** U-Boot is pinned by SHA-256 with a fixed build timestamp so the
   signed seed is byte-identical on every build (`fuzz/uboot-fit/pin.txt`); `ci-replay.sh`
-  refuses to replay a build that does not match the pin (`fuzz/uboot-fit/ci-replay.sh:66`).
+  refuses to replay a build that does not match the pin (`fuzz/uboot-fit/ci-replay.sh:75`).
   CI actions are pinned to commit SHAs.
+- **Crypto stub is opt-in and never trusted alone.** The stub lives in its own source and object
+  trees so its patch never reaches the real build (`fuzz/uboot-fit/build.sh:100`); `build.sh`
+  fails unless the stub build has both stub marks and the real build neither
+  (`fuzz/uboot-fit/build.sh:160`), and a hit counts only once `confirm.sh`, which refuses a
+  binary with either mark, reproduces it on real crypto (`fuzz/uboot-fit/confirm.sh:42`).
 - **Simulation first.** The MAVLink harness only talks to localhost unless explicitly told
   otherwise, and its injected command is a benign read (`AUTOPILOT_VERSION`).
 - **Rust for the signing control**, because it sits on an untrusted-bytes parser/crypto
@@ -223,7 +243,8 @@ Not tested, or only documented:
   ([`roadmap.md`](roadmap.md) "Next").
 - **Run 4 (P7.2) in progress**: hypotheses H2 and H4 are not yet tested
   (`research/uas-autonomy/`, roadmap "Next" item 1).
-- **U-Boot fuzz target is Phase 0**: builds and replays, no campaign run; older releases such
+- **U-Boot fuzz target is Phase 0**: builds both variants and replays, exec/s measured, no
+  campaign run (`fuzz/uboot-fit/README.md`, "Crypto-stub build"); older releases such
   as v2021.01 need a different entry point (`fuzz/uboot-fit/README.md`, "Notes").
 - **GNSS-spoofing plan (T2)** is written but its SITL run is pending
   (`docs/track2/uas-gnss-spoofing-test-plan.md`).
