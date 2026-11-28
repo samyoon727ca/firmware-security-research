@@ -18,8 +18,8 @@
 #                   -DFUZZ_CRYPTO_STUB). See README.md; confirm hits with confirm.sh.
 #
 # Steps: download the pinned tarball and refuse it unless its SHA-256 matches;
-# unpack it into <out>/src; copy fit_fuzz.c into the tree's test/fuzz/; build
-# sandbox_defconfig + fuzz.config with clang (CONFIG_FUZZ adds
+# unpack it into <out>/src; copy fit_fuzz.c and fit_fuzz_ci.c into the tree's
+# test/fuzz/; build sandbox_defconfig + fuzz.config with clang (CONFIG_FUZZ adds
 # -fsanitize=fuzzer,address); check the .config and the linked binary.
 # Result: <out>/sandbox/u-boot, a libFuzzer binary. Run it with
 #   UBOOT_SB_FUZZ_TEST=fuzz_fit_check_format <out>/sandbox/u-boot [args]
@@ -44,6 +44,7 @@ while (( $# )); do
     *)              die "unknown argument: $1 (see --help)" ;;
   esac
 done
+(( ${BASH_VERSINFO[0]:-0} >= 4 )) || die "needs bash 4+ (found ${BASH_VERSION:-unknown})"
 [[ -f $PIN ]] || die "no pin file: $PIN"
 PIN_DIR=$(cd "$(dirname "$PIN")" && pwd)
 # The script deletes and recreates <out>/src and <out>/sandbox, so it only
@@ -120,8 +121,8 @@ tar -xf "$TAR" -C "$OUT/${P}src"
 if [[ -n $GLUE ]]; then patch -s -p1 -d "$SRC" < "$GLUE"; fi
 [[ -f $SRC/test/fuzz/Makefile && -f $SRC/include/test/fuzz.h ]] \
   || die "U-Boot $VER has no test/fuzz/ (FUZZ_TEST) mechanism to add the target to"
-cp "$HERE/fit_fuzz.c" "$SRC/test/fuzz/fit_fuzz.c"
-printf '\nobj-$(CONFIG_FIT) += fit_fuzz.o\n' >> "$SRC/test/fuzz/Makefile"
+cp "$HERE/fit_fuzz.c" "$HERE/fit_fuzz_ci.c" "$SRC/test/fuzz/"
+printf '\nobj-$(CONFIG_FIT) += fit_fuzz_ci.o\n' >> "$SRC/test/fuzz/Makefile"
 
 # --- Configure ------------------------------------------------------------------
 if [[ -n $(pin source_date_epoch) ]]; then
@@ -175,10 +176,15 @@ done
 marks=$(stub_marks "$B/u-boot")
 (( marks == 2 * STUB )) || die "$B/u-boot carries $marks of the 2 crypto-stub marks (want $((2 * STUB)))"
 
-# What produced this build; ci-replay.sh takes source_date_epoch from here.
+# What produced this build; ci-replay.sh checks the pin and harness/config digests
+# and takes source_date_epoch from here (bench.sh reads line 3 as the compiler).
+sha256_of() { sha256sum "$1" | awk '{print $1}'; }
 {
   echo "u-boot $VER sha256 $SHA"
   echo "source_date_epoch ${SOURCE_DATE_EPOCH:-}"
   "$CC" --version | head -n 1
+  echo "fit_fuzz.c $(sha256_of "$HERE/fit_fuzz.c")"
+  echo "fit_fuzz_ci.c $(sha256_of "$HERE/fit_fuzz_ci.c")"
+  echo "config $(sha256_of "$CFG")"
 } > "$B/toolchain.txt"
 echo "built $B/u-boot (U-Boot $VER, $(head -n 1 < <("$CC" --version)))${P:+, RSA check STUBBED}"

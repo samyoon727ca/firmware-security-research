@@ -57,9 +57,10 @@ added later (the seed's dev key is RSA-3072). No FIT code under test changes.
  endif
 --- /dev/null
 +++ b/test/fuzz/Makefile
-@@ -0,0 +1,2 @@
+@@ -0,0 +1,3 @@
 +obj-y += cmd_fuzz.o
 +CFLAGS_fit_fuzz.o := -include common.h
++CFLAGS_fit_fuzz_ci.o := -include common.h
 --- /dev/null
 +++ b/test/fuzz/cmd_fuzz.c
 @@ -0,0 +1,33 @@

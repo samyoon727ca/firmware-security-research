@@ -33,7 +33,9 @@ the target, and CI replays a committed seed through it. It does no fuzzing campa
 | `build.sh` | download → SHA-256 check (fails closed) → unpack into `build/` → patch the target in → build; `--crypto-stub` builds the stubbed-RSA variant apart (see [Crypto-stub build](#crypto-stub-build-fuzzing-only)) |
 | `crypto-stub.patch`, `stub.sh` | the RSA stub (`lib/rsa/rsa-verify.c`, under `FUZZ_CRYPTO_STUB`), and the symbol and banner that tell a stub binary from a real one |
 | `fuzz.config` | Kconfig fragment over `sandbox_defconfig`: `CONFIG_FUZZ` (libFuzzer + ASan), `FIT`, `FIT_SIGNATURE`, `FIT_FULL_CHECK`, no legacy images (as P2's `p2.config`) |
-| `fit_fuzz.c` | the target, `FUZZ_TEST(fuzz_fit_check_format)`, plus the replay-only seed checks `fuzz_fit_check_format_accept`, `fuzz_fit_config_verify_check` and the oracle test hook `fuzz_fit_oracle_hook_check`, and `confirm.sh`'s verdict test `fuzz_fit_confirm`; copied into the tree's `test/fuzz/` at build time |
+| `fit_fuzz.c` | the upstreamable target, `FUZZ_TEST(fuzz_fit_check_format)`; copied into the tree's `test/fuzz/` at build time |
+| `fit_fuzz_ci.c` | local CI/confirm harnesses kept out of `fit_fuzz.c` (`fuzz_fit_check_format_accept`, `fuzz_fit_config_verify_check`, `fuzz_fit_oracle_hook_check`, `fuzz_fit_confirm`); includes `fit_fuzz.c` and is compiled in `test/fuzz/` by `build.sh` |
+| `selftest.sh` | offline self-test (called by `tools/run-checks.sh`): checks `fit_fuzz.c` upstreamability, bash-version guard, and `ci-replay.sh --no-build` provenance checks |
 | `seeds/cc.its` | P2's FIT source (`cc/fit/cc.its` in `uas-sec-p2-verified-boot`, provenance in the file): kernel + fdt + ramdisk, sha256 hashes, one config signed with `sign-images` |
 | `make_seed.sh` | signs `seeds/cc.its` over dummy payloads with a dev-only key and the tree's own `mkimage`; writes the four `replay/` files below |
 | `replay/` | committed seeds, each a FIT `fit_check_format()` accepts. `minimal.its` is compiled with the tree's own `mkimage`; `p2-signed.fit` is the signed seed, `control-dev.dtb` the control DTB with its public key (`required = "conf"`), `p2-signed.kernel.sha256` the SHA-256 of its kernel payload (the oracle's expected digest), `p2-signed.regions.sha256` the digest its signature covers (the only one the stub accepts) |
@@ -46,7 +48,7 @@ the target, and CI replays a committed seed through it. It does no fuzzing campa
 
 ## Build
 
-Linux (WSL Ubuntu or CI), clang with libFuzzer, plus U-Boot's host build deps:
+Linux (WSL Ubuntu or CI) with bash 4+ and GNU coreutils (`sha256sum`), clang with libFuzzer, plus U-Boot's host build deps:
 
 ```bash
 sudo apt install -y clang llvm libclang-rt-dev make bison flex bc libssl-dev libgnutls28-dev \
@@ -82,8 +84,7 @@ kernel's hash value flipped (caught by `fit_config_verify()`). It also runs the 
 seed, bootm's lookup must load the signed kernel and the oracle must stay quiet; on the flipped
 payload byte, bootm's lookup must refuse the kernel (counted, not reported). A fourth run,
 `fuzz_fit_oracle_hook_check`, must **fail**: it aborts at the oracle with the marker line (see
-below). Either way the binary must come from the `--version-file` pin: `ci-replay.sh` compares its version and SHA-256
-with `build/sandbox/toolchain.txt`, so `--no-build` cannot replay a build of another release.
+below). Either way the binary must come from the `--version-file` pin and current harness/config: `ci-replay.sh` compares the pin version and SHA-256 plus the SHA-256 of `fit_fuzz.c`, `fit_fuzz_ci.c` and the config fragment with `build/sandbox/toolchain.txt`, so `--no-build` cannot replay a build of another release or a stale harness.
 The crypto-stub build replays the seeds too (no crash, all accepted), must accept a flipped signature byte that the real build rejects, and its oracle test hook must fire; `confirm.sh` must call the signed seed verified, `minimal.itb` rejected.
 
 To run one input by hand: the sandbox finds `test.dtb`, and the target `control-dev.dtb` and

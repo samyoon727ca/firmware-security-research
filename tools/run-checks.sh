@@ -58,6 +58,14 @@ else
   bad "mavlink selftest: missing pymavlink fails under CI, skips outside"
 fi
 if sh tools/embargo-guard.sh selftest >/dev/null 2>&1; then ok "embargo-guard.sh selftest"; else bad "embargo-guard.sh selftest"; fi
+if ufit_out="$(bash fuzz/uboot-fit/selftest.sh 2>&1)"; then
+  ok "uboot-fit/selftest.sh"
+  if printf '%s\n' "$ufit_out" | grep -q '\[SKIP\]'; then
+    printf '%s\n' "$ufit_out" | sed -n 's/^\[SKIP\] /  [skip] uboot-fit\/selftest.sh: /p'
+  fi
+else
+  bad "uboot-fit/selftest.sh"
+fi
 
 echo "== 4. SVG well-formed =="
 # Tracked SVGs only, so the result is the same on a clean checkout and on a

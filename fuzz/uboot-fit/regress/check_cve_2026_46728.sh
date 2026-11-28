@@ -39,6 +39,7 @@ while (( $# )); do
     *)          die "unknown argument: $1 (see --help)" ;;
   esac
 done
+(( ${BASH_VERSINFO[0]:-0} >= 4 )) || die "needs bash 4+ (found ${BASH_VERSION:-unknown})"
 command -v python3 >/dev/null || die "missing tool: python3"
 PRE=$TOP/pins/cve-2026-46728-pre.txt FIX=$TOP/pins/cve-2026-46728-fix.txt
 if (( BUILD )); then
