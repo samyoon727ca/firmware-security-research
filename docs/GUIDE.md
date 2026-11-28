@@ -183,12 +183,12 @@ What `tools/run-checks.sh` checks, in CI on every pull request and on `main`:
 What `uboot-fit.yml` checks: the pinned sandbox builds and links the target; the seeds replay
 with no sanitizer report; they pass `fit_check_format()`; the signed seed passes
 `fit_config_verify()` while two tampered copies are rejected; and the oracle's test hook must
-fire (`fuzz/uboot-fit/fit_fuzz.c:235`, `:264`, `:375`, `:410`; driver
+fire (`fuzz/uboot-fit/fit_fuzz.c:235`, `fuzz/uboot-fit/fit_fuzz_ci.c:41`, `:152`, `:187`; driver
 `fuzz/uboot-fit/ci-replay.sh`). It also checks that the real build rejects a flipped signature
 byte and carries neither stub mark, that the stub build carries both, replays the seeds through
-it and must see it accept the flipped signature byte (`fuzz/uboot-fit/ci-replay.sh:79`,
-`:195`), and that `confirm.sh` calls the signed seed verified and `minimal.itb` rejected
-(`fuzz/uboot-fit/ci-replay.sh:206`). Replay only, with `-runs=0`: no fuzzing happens in CI,
+it and must see it accept the flipped signature byte (`fuzz/uboot-fit/ci-replay.sh:111`,
+`:225`), and that `confirm.sh` calls the signed seed verified and `minimal.itb` rejected
+(`fuzz/uboot-fit/ci-replay.sh:236`). Replay only, with `-runs=0`: no fuzzing happens in CI,
 and `bench.sh` is never run there.
 
 Not tested, or only documented:

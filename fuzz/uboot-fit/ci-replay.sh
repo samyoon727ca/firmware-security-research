@@ -9,8 +9,10 @@
 #   --version-file, --out  passed to build.sh (same defaults)
 #   --no-build             reuse existing <out>/sandbox and <out>/stub-sandbox
 #
-# Either way the binary must come from the --version-file pin: its version and
-# SHA-256 are checked against <out>/sandbox/toolchain.txt before any replay.
+# Either way the binary must come from the --version-file pin and the current
+# harness and config: the pin version/SHA-256 and the SHA-256 of fit_fuzz.c,
+# fit_fuzz_ci.c and the config fragment are checked against toolchain.txt before
+# any replay.
 #
 # Seeds come from replay/: each *.its is compiled to a FIT with the tree's own
 # mkimage (and must list cleanly with mkimage -l, so the seed is known to be a
@@ -57,6 +59,8 @@ while (( $# )); do
     *)              die "unknown argument: $1 (see --help)" ;;
   esac
 done
+(( ${BASH_VERSINFO[0]:-0} >= 4 )) || die "needs bash 4+ (found ${BASH_VERSION:-unknown})"
+command -v sha256sum >/dev/null || die "missing tool: sha256sum"
 [[ -f $PIN ]] || die "no pin file: $PIN"
 if (( BUILD )); then
   # build.sh refuses an --out it did not create, and marks the one it uses.
@@ -67,17 +71,43 @@ fi
 [[ -f $OUT/.uboot-fit-build ]] || die "$OUT is not a build.sh output (no .uboot-fit-build marker)"
 OUT=$(cd "$OUT" && pwd)
 B=$OUT/sandbox
-[[ -x $B/u-boot ]] || die "no fuzz binary at $B/u-boot (run build.sh)"
-# The binary must come from the pin this run names: with --no-build, <out> may
-# hold a build of another release. build.sh writes this line last.
-[[ -f $B/toolchain.txt ]] || die "no $B/toolchain.txt: the build is incomplete (run build.sh)"
-pin() { awk -v k="$1:" '$1 == k {print $2}' "$PIN"; }
-want="u-boot $(pin version) sha256 $(pin sha256)"
-have=$(head -n 1 "$B/toolchain.txt")
-[[ $have == "$want" ]] \
-  || die "$B/u-boot was built from '$have', not '$want' ($PIN); rebuild it (drop --no-build)"
-[[ -x $OUT/stub-sandbox/u-boot && $(head -n 1 "$OUT/stub-sandbox/toolchain.txt" 2>/dev/null) == "$want" ]] \
-  || die "no $OUT/stub-sandbox/u-boot built from '$want' ($PIN); run build.sh --crypto-stub"
+# The binary must come from the pin and current harness/config: with --no-build,
+# <out> may hold a build of another release or a stale harness. build.sh writes
+# toolchain.txt last.
+sha256_of() { sha256sum "$1" | awk '{print $1}'; }
+pin_of() { awk -v k="$2:" '$1 == k {print $2}' "$1"; }
+tc_val() { awk -v k="$2" '$1 == k && NF == 2 {print $2; exit}' "$1"; }
+check_toolchain() { # build-dir, pin-file, hint
+  local dir=$1 pf=$2 hint=$3 tc=$1/toolchain.txt want have cfg pin_dir key path label want_sha have_sha
+  [[ -x $dir/u-boot ]] || die "no fuzz binary at $dir/u-boot ($hint)"
+  [[ -f $tc ]] || die "no $tc: the build is incomplete ($hint)"
+  want="u-boot $(pin_of "$pf" version) sha256 $(pin_of "$pf" sha256)"
+  have=$(head -n 1 "$tc")
+  [[ $have == "$want" ]] \
+    || die "$dir/u-boot was built from '$have', not '$want' ($pf); $hint"
+  pin_dir=$(cd "$(dirname "$pf")" && pwd)
+  cfg=$(pin_of "$pf" config)
+  if [[ -n $cfg ]]; then
+    [[ $cfg =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ && -f $pin_dir/$cfg ]] || die "bad config in $pf: '$cfg'"
+    cfg=$pin_dir/$cfg
+  else
+    cfg=$HERE/fuzz.config
+  fi
+  for key in fit_fuzz.c fit_fuzz_ci.c config; do
+    case $key in
+      fit_fuzz.c)    path=$HERE/fit_fuzz.c;    label=fit_fuzz.c ;;
+      fit_fuzz_ci.c) path=$HERE/fit_fuzz_ci.c; label=fit_fuzz_ci.c ;;
+      config)        path=$cfg;                label=$(basename "$cfg") ;;
+    esac
+    want_sha=$(sha256_of "$path")
+    [[ $want_sha =~ ^[0-9a-f]{64}$ ]] || die "could not compute SHA-256 of $path"
+    have_sha=$(tc_val "$tc" "$key")
+    [[ -n $have_sha && $have_sha == "$want_sha" ]] \
+      || die "$dir/u-boot is stale: $label SHA-256 is '${have_sha:-missing}', want '$want_sha'; $hint"
+  done
+}
+check_toolchain "$B" "$PIN" "rebuild it (drop --no-build)"
+check_toolchain "$OUT/stub-sandbox" "$PIN" "run build.sh --crypto-stub (or drop --no-build)"
 (( $(stub_marks "$B/u-boot") == 0 )) || die "the real-crypto build $B/u-boot carries a crypto-stub mark"
 (( $(stub_marks "$OUT/stub-sandbox/u-boot") == 2 )) || die "the stub build lacks a crypto-stub mark, so the check above proves nothing"
 echo "real-crypto build: no crypto-stub symbol or banner; stub build: both"
@@ -221,16 +251,14 @@ rm -rf "$G" && mkdir -p "$G" && cp "$REG" "$G/"
 replay fuzz_fit_check_format "$G" 1
 grep -qE '^rejected .*\(by fit_check_format\(\) ' <(bash "$HERE/confirm.sh" --version-file "$PIN" --out "$OUT" "$REG") \
   || die "confirm.sh did not report the CVE-2021-27138 input rejected by fit_check_format()"
-echo "CVE-2021-27138 input: rejected by fit_check_format(); the oracle stays quiet on U-Boot $(pin version)"
+echo "CVE-2021-27138 input: rejected by fit_check_format(); the oracle stays quiet on U-Boot $(pin_of "$PIN" version)"
 
 # On v2021.01 it must fire. That tree has no libFuzzer: the glue's "fuzz"
 # command runs the same target once on the file, from the run directory.
 OB=$OUT/v2021.01/sandbox
 PIN=$HERE/pins/v2021.01.txt
 if (( BUILD )); then bash "$HERE/build.sh" --version-file "$PIN" --out "$OUT/v2021.01"; fi
-want="u-boot $(pin version) sha256 $(pin sha256)"
-[[ $(head -n 1 "$OB/toolchain.txt" 2>/dev/null) == "$want" ]] \
-  || die "$OB/u-boot is not a finished build of '$want'; rebuild it (drop --no-build)"
+check_toolchain "$OB" "$PIN" "rebuild it (drop --no-build)"
 cp "$HERE/replay/control-dev.dtb" "$HERE/replay/p2-signed.kernel.sha256" "$REG" "$OB/"
 log=$OUT/results/cve-2021-27138-v2021.01.log
 rc=0
